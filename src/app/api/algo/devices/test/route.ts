@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Play a tone file (chime.wav is standard on Algo devices)
-    await client.playTone({ path: "chime.wav", loop: false });
+    // mcast: true broadcasts to multicast receivers (speakers)
+    await client.playTone({ path: "chime.wav", loop: false, mcast: true });
 
     return NextResponse.json({ success: true });
   } catch (error) {
