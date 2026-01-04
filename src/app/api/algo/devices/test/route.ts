@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Play a tone file (chime.wav is standard on Algo devices)
-    await client.playTone({ file: "chime.wav", loop: false });
+    await client.playTone({ path: "chime.wav", loop: false });
 
     return NextResponse.json({ success: true });
   } catch (error) {
