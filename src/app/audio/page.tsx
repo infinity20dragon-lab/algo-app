@@ -6,27 +6,36 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Upload, Play, Pause, Trash2, RefreshCw, Music, X, Speaker, Radio } from "lucide-react";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { storage } from "@/lib/firebase/config";
-import { getAudioFiles, addAudioFile, deleteAudioFile, getDevices } from "@/lib/firebase/firestore";
-import { useAuth } from "@/contexts/auth-context";
-import type { AudioFile, AlgoDevice } from "@/lib/algo/types";
-import { formatBytes, formatDuration, formatDate } from "@/lib/utils";
+import { Upload, Trash2, RefreshCw, Music, X, Speaker, Radio } from "lucide-react";
+import { getDevices } from "@/lib/firebase/firestore";
+import type { AlgoDevice } from "@/lib/algo/types";
+import { formatBytes } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 
+// Default tones that come pre-installed on Algo devices
+const DEFAULT_TONES = [
+  "bell-na.wav",
+  "bell-uk.wav",
+  "buzzer.wav",
+  "chime.wav",
+  "dogs.wav",
+  "gong.wav",
+  "page-notif.wav",
+  "speech-test.wav",
+  "tone-1kHz-max.wav",
+  "warble1-low.wav",
+  "warble2-med.wav",
+  "warble3-high.wav",
+  "warble4-trill.wav",
+];
+
 export default function AudioPage() {
-  const { user } = useAuth();
-  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadName, setUploadName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   // Device tones state
   const [devices, setDevices] = useState<AlgoDevice[]>([]);
@@ -36,20 +45,8 @@ export default function AudioPage() {
   const [playingTone, setPlayingTone] = useState<string | null>(null);
 
   useEffect(() => {
-    loadAudioFiles();
     loadDevices();
   }, []);
-
-  const loadAudioFiles = async () => {
-    try {
-      const files = await getAudioFiles();
-      setAudioFiles(files);
-    } catch (error) {
-      console.error("Failed to load audio files:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadDevices = async () => {
     try {
@@ -62,8 +59,17 @@ export default function AudioPage() {
       }
     } catch (error) {
       console.error("Failed to load devices:", error);
+    } finally {
+      setLoading(false);
     }
   };
+
+  // Auto-load tones when device is selected
+  useEffect(() => {
+    if (selectedDevice) {
+      fetchDeviceTones();
+    }
+  }, [selectedDevice]);
 
   const fetchDeviceTones = async () => {
     const device = devices.find(d => d.id === selectedDevice);
@@ -136,40 +142,37 @@ export default function AudioPage() {
         return;
       }
       setSelectedFile(file);
-      setUploadName(file.name.replace(".wav", ""));
     }
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile || !uploadName.trim()) return;
+  const handleUploadToDevice = async () => {
+    const device = devices.find(d => d.id === selectedDevice);
+    if (!selectedFile || !device) return;
 
     setUploading(true);
     try {
-      // Upload to Firebase Storage
-      const filename = `${Date.now()}-${selectedFile.name}`;
-      const storageRef = ref(storage, `audio/${filename}`);
-      await uploadBytes(storageRef, selectedFile);
-      const downloadUrl = await getDownloadURL(storageRef);
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("ipAddress", device.ipAddress);
+      formData.append("password", device.apiPassword);
+      formData.append("authMethod", device.authMethod);
 
-      // Get audio duration
-      const duration = await getAudioDuration(selectedFile);
-
-      // Save metadata to Firestore
-      await addAudioFile({
-        name: uploadName.trim(),
-        filename,
-        storageUrl: downloadUrl,
-        duration,
-        fileSize: selectedFile.size,
-        uploadedBy: user?.uid || "unknown",
+      const response = await fetch("/api/algo/files/upload", {
+        method: "POST",
+        body: formData,
       });
 
-      await loadAudioFiles();
-      setShowUpload(false);
-      setSelectedFile(null);
-      setUploadName("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+      const data = await response.json();
+      if (data.success) {
+        // Reload tones from device
+        await fetchDeviceTones();
+        setShowUpload(false);
+        setSelectedFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      } else {
+        alert("Failed to upload: " + data.error);
       }
     } catch (error) {
       console.error("Upload failed:", error);
@@ -179,56 +182,45 @@ export default function AudioPage() {
     }
   };
 
-  const getAudioDuration = (file: File): Promise<number> => {
-    return new Promise((resolve) => {
-      const audio = new Audio();
-      audio.onloadedmetadata = () => {
-        resolve(audio.duration);
-      };
-      audio.onerror = () => {
-        resolve(0);
-      };
-      audio.src = URL.createObjectURL(file);
-    });
-  };
+  const handleDeleteTone = async (toneName: string) => {
+    if (DEFAULT_TONES.includes(toneName)) {
+      alert("Cannot delete default system tones.");
+      return;
+    }
 
-  const handleDelete = async (audioFile: AudioFile) => {
-    if (!confirm(`Delete "${audioFile.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${toneName}"? This cannot be undone.`)) return;
 
+    const device = devices.find(d => d.id === selectedDevice);
+    if (!device) return;
+
+    setDeleting(toneName);
     try {
-      // Delete from Firebase Storage
-      const storageRef = ref(storage, `audio/${audioFile.filename}`);
-      await deleteObject(storageRef);
+      const response = await fetch("/api/algo/files/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipAddress: device.ipAddress,
+          password: device.apiPassword,
+          authMethod: device.authMethod,
+          filename: toneName,
+        }),
+      });
 
-      // Delete from Firestore
-      await deleteAudioFile(audioFile.id);
-
-      await loadAudioFiles();
+      const data = await response.json();
+      if (data.success) {
+        await fetchDeviceTones();
+      } else {
+        alert("Failed to delete: " + data.error);
+      }
     } catch (error) {
       console.error("Delete failed:", error);
-      alert("Failed to delete file. Please try again.");
+      alert("Failed to delete file.");
+    } finally {
+      setDeleting(null);
     }
   };
 
-  const handlePlay = (audioFile: AudioFile) => {
-    if (playingId === audioFile.id) {
-      // Stop playing
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setPlayingId(null);
-    } else {
-      // Start playing
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      audioRef.current = new Audio(audioFile.storageUrl);
-      audioRef.current.onended = () => setPlayingId(null);
-      audioRef.current.play();
-      setPlayingId(audioFile.id);
-    }
-  };
+  const isCustomTone = (toneName: string) => !DEFAULT_TONES.includes(toneName);
 
   return (
     <AppLayout>
@@ -237,14 +229,18 @@ export default function AudioPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Audio Library</h1>
-            <p className="text-gray-500">Manage audio files for distribution</p>
+            <p className="text-gray-500">Manage audio files on your Algo paging device</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={loadAudioFiles}>
+            <Button
+              variant="outline"
+              onClick={fetchDeviceTones}
+              disabled={!selectedDevice || loadingTones}
+            >
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
             </Button>
-            <Button onClick={() => setShowUpload(true)}>
+            <Button onClick={() => setShowUpload(true)} disabled={!selectedDevice}>
               <Upload className="mr-2 h-4 w-4" />
               Upload Audio
             </Button>
@@ -257,12 +253,11 @@ export default function AudioPage() {
             <Card className="w-full max-w-md">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle>Upload Audio</CardTitle>
+                  <CardTitle>Upload Audio to Device</CardTitle>
                   <button
                     onClick={() => {
                       setShowUpload(false);
                       setSelectedFile(null);
-                      setUploadName("");
                     }}
                     className="text-gray-400 hover:text-gray-600"
                   >
@@ -270,7 +265,7 @@ export default function AudioPage() {
                   </button>
                 </div>
                 <CardDescription>
-                  Upload a WAV file to your audio library
+                  Upload a WAV file directly to your Algo paging device
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -290,14 +285,8 @@ export default function AudioPage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="name">Display Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="Emergency Alert"
-                    value={uploadName}
-                    onChange={(e) => setUploadName(e.target.value)}
-                  />
+                <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700">
+                  The file will be uploaded directly to the selected device and will be available immediately for playback.
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">
@@ -306,17 +295,16 @@ export default function AudioPage() {
                     onClick={() => {
                       setShowUpload(false);
                       setSelectedFile(null);
-                      setUploadName("");
                     }}
                   >
                     Cancel
                   </Button>
                   <Button
-                    onClick={handleUpload}
-                    disabled={!selectedFile || !uploadName.trim()}
+                    onClick={handleUploadToDevice}
+                    disabled={!selectedFile}
                     isLoading={uploading}
                   >
-                    Upload
+                    Upload to Device
                   </Button>
                 </div>
               </CardContent>
@@ -324,135 +312,142 @@ export default function AudioPage() {
           </div>
         )}
 
-        {/* Device Tones Section */}
+        {/* Device Selection */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Radio className="h-5 w-5" />
-                  Device Tones
+                  Paging Device
                 </CardTitle>
                 <CardDescription>
-                  Built-in tones on your Algo paging device
+                  Select the Algo 8301 paging device to manage
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={selectedDevice}
-                  onChange={(e) => setSelectedDevice(e.target.value)}
-                  className="w-48"
-                >
-                  <option value="">Select Device</option>
-                  {devices.filter(d => d.type === "8301").map((device) => (
-                    <option key={device.id} value={device.id}>
-                      {device.name}
-                    </option>
-                  ))}
-                </Select>
-                <Button
-                  variant="outline"
-                  onClick={fetchDeviceTones}
-                  disabled={!selectedDevice || loadingTones}
-                  isLoading={loadingTones}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Load Tones
-                </Button>
-              </div>
+              <Select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                className="w-64"
+              >
+                <option value="">Select Device</option>
+                {devices.filter(d => d.type === "8301").map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.name} ({device.ipAddress})
+                  </option>
+                ))}
+              </Select>
             </div>
           </CardHeader>
-          <CardContent>
-            {deviceTones.length === 0 ? (
-              <p className="text-center text-gray-500 py-4">
-                Select a device and click &quot;Load Tones&quot; to see available tones
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {deviceTones.map((tone) => (
-                  <Button
-                    key={tone}
-                    variant={playingTone === tone ? "default" : "outline"}
-                    className="justify-start"
-                    onClick={() => playDeviceTone(tone)}
-                    disabled={playingTone !== null}
-                  >
-                    <Speaker className="mr-2 h-4 w-4" />
-                    {tone.replace(".wav", "")}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </CardContent>
         </Card>
 
-        {/* Uploaded Audio Files */}
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Uploaded Audio</h2>
-        </div>
+        {/* Device Tones Section */}
+        {selectedDevice && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Audio Files on Device</CardTitle>
+              <CardDescription>
+                Click to play through speakers. Custom files can be deleted.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingTones ? (
+                <div className="flex justify-center py-8">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+                </div>
+              ) : deviceTones.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Music className="h-12 w-12 text-gray-300 mb-4" />
+                  <p className="text-gray-500">No tones found on device</p>
+                  <Button
+                    variant="outline"
+                    onClick={fetchDeviceTones}
+                    className="mt-4"
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Reload
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Default Tones */}
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Default Tones</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {deviceTones.filter(t => !isCustomTone(t)).map((tone) => (
+                        <Button
+                          key={tone}
+                          variant={playingTone === tone ? "default" : "outline"}
+                          className="justify-start"
+                          onClick={() => playDeviceTone(tone)}
+                          disabled={playingTone !== null}
+                        >
+                          <Speaker className="mr-2 h-4 w-4" />
+                          {tone.replace(".wav", "")}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
 
-        {/* Audio Files List */}
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          </div>
-        ) : audioFiles.length === 0 ? (
+                  {/* Custom Tones */}
+                  {deviceTones.some(t => isCustomTone(t)) && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-700 mb-2">Custom Tones</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {deviceTones.filter(t => isCustomTone(t)).map((tone) => (
+                          <div
+                            key={tone}
+                            className="flex items-center gap-2 rounded-md border p-2"
+                          >
+                            <Button
+                              variant={playingTone === tone ? "default" : "ghost"}
+                              size="sm"
+                              className="flex-1 justify-start"
+                              onClick={() => playDeviceTone(tone)}
+                              disabled={playingTone !== null}
+                            >
+                              <Speaker className="mr-2 h-4 w-4" />
+                              {tone.replace(".wav", "")}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteTone(tone)}
+                              disabled={deleting === tone}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            >
+                              {deleting === tone ? (
+                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* No device selected message */}
+        {!selectedDevice && !loading && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <div className="mb-4 rounded-full bg-gray-100 p-4">
                 <Music className="h-8 w-8 text-gray-400" />
               </div>
               <h3 className="mb-2 text-lg font-medium text-gray-900">
-                No audio files yet
+                Select a Device
               </h3>
-              <p className="mb-4 text-center text-gray-500">
-                Upload WAV files to distribute to your Algo devices
+              <p className="text-center text-gray-500">
+                Choose an Algo 8301 paging device above to manage its audio files
               </p>
-              <Button onClick={() => setShowUpload(true)}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload Audio
-              </Button>
             </CardContent>
           </Card>
-        ) : (
-          <div className="space-y-3">
-            {audioFiles.map((audioFile) => (
-              <Card key={audioFile.id}>
-                <CardContent className="flex items-center gap-4 p-4">
-                  <button
-                    onClick={() => handlePlay(audioFile)}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 transition-colors hover:bg-blue-200"
-                  >
-                    {playingId === audioFile.id ? (
-                      <Pause className="h-5 w-5" />
-                    ) : (
-                      <Play className="h-5 w-5 pl-0.5" />
-                    )}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-medium text-gray-900">{audioFile.name}</h3>
-                    <div className="flex flex-wrap gap-2 text-sm text-gray-500">
-                      <span>{formatDuration(audioFile.duration)}</span>
-                      <span>•</span>
-                      <span>{formatBytes(audioFile.fileSize)}</span>
-                      <span>•</span>
-                      <span>{formatDate(audioFile.createdAt)}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">WAV</Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDelete(audioFile)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
         )}
       </div>
     </AppLayout>

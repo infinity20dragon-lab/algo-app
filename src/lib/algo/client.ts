@@ -265,6 +265,58 @@ export class AlgoClient {
     return this.request<{ filelist: string[] }>("GET", `/api/files/${folder}`);
   }
 
+  /**
+   * Upload a file to the device
+   */
+  async uploadFile(folder: string, filename: string, data: Buffer): Promise<void> {
+    const uri = `/api/files/${folder}/${filename}`;
+    const url = `${this.baseUrl}${uri}`;
+
+    let headers: HeadersInit;
+
+    if (this.authMethod === "basic") {
+      const credentials = Buffer.from(`admin:${this.password}`).toString("base64");
+      headers = {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/octet-stream",
+      };
+    } else {
+      // For standard auth with binary data, we need different HMAC calculation
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = crypto.randomInt(100000, 999999999).toString();
+      const contentMd5 = crypto.createHash("md5").update(data).digest("hex");
+      const hmacInput = `PUT:${uri}:${contentMd5}:application/octet-stream:${timestamp}:${nonce}`;
+      const hmacKey = crypto
+        .createHmac("sha256", this.password)
+        .update(hmacInput)
+        .digest("hex");
+
+      headers = {
+        Authorization: `hmac admin:${nonce}:${hmacKey}`,
+        Date: new Date().toUTCString(),
+        "Content-Type": "application/octet-stream",
+        "Content-MD5": contentMd5,
+      };
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: data,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+    }
+  }
+
+  /**
+   * Delete a file from the device
+   */
+  async deleteFile(filepath: string): Promise<void> {
+    await this.request<void>("DELETE", "/api/files/", { path: filepath });
+  }
+
   // ============ Multicast Control ============
 
   /**
