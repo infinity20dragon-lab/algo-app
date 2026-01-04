@@ -83,7 +83,8 @@ export class AlgoClient {
     this.ipAddress = options.ipAddress;
     this.password = options.password;
     this.authMethod = options.authMethod;
-    const protocol = options.useHttps !== false ? "https" : "http";
+    // Use HTTP by default to avoid self-signed cert issues
+    const protocol = options.useHttps === true ? "https" : "http";
     this.baseUrl = `${protocol}://${this.ipAddress}`;
   }
 

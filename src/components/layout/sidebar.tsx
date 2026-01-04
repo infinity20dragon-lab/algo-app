@@ -7,6 +7,7 @@ import {
   Speaker,
   Music,
   Radio,
+  Mic,
   Settings,
   LogOut,
   Menu,
@@ -25,6 +26,7 @@ const navItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Devices", href: "/devices", icon: Speaker },
   { title: "Audio Library", href: "/audio", icon: Music },
+  { title: "Live Broadcast", href: "/live", icon: Mic },
   { title: "Distribute", href: "/distribute", icon: Radio },
   { title: "Settings", href: "/settings", icon: Settings },
 ];
