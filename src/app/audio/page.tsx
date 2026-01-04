@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Play, Pause, Trash2, RefreshCw, Music, X } from "lucide-react";
+import { Upload, Play, Pause, Trash2, RefreshCw, Music, X, Speaker, Radio } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { storage } from "@/lib/firebase/config";
-import { getAudioFiles, addAudioFile, deleteAudioFile } from "@/lib/firebase/firestore";
+import { getAudioFiles, addAudioFile, deleteAudioFile, getDevices } from "@/lib/firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
-import type { AudioFile } from "@/lib/algo/types";
+import type { AudioFile, AlgoDevice } from "@/lib/algo/types";
 import { formatBytes, formatDuration, formatDate } from "@/lib/utils";
+import { Select } from "@/components/ui/select";
 
 export default function AudioPage() {
   const { user } = useAuth();
@@ -27,8 +28,16 @@ export default function AudioPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Device tones state
+  const [devices, setDevices] = useState<AlgoDevice[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
+  const [deviceTones, setDeviceTones] = useState<string[]>([]);
+  const [loadingTones, setLoadingTones] = useState(false);
+  const [playingTone, setPlayingTone] = useState<string | null>(null);
+
   useEffect(() => {
     loadAudioFiles();
+    loadDevices();
   }, []);
 
   const loadAudioFiles = async () => {
@@ -39,6 +48,82 @@ export default function AudioPage() {
       console.error("Failed to load audio files:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDevices = async () => {
+    try {
+      const deviceList = await getDevices();
+      setDevices(deviceList);
+      // Auto-select first 8301 device if available
+      const pagingDevice = deviceList.find(d => d.type === "8301");
+      if (pagingDevice) {
+        setSelectedDevice(pagingDevice.id);
+      }
+    } catch (error) {
+      console.error("Failed to load devices:", error);
+    }
+  };
+
+  const fetchDeviceTones = async () => {
+    const device = devices.find(d => d.id === selectedDevice);
+    if (!device) return;
+
+    setLoadingTones(true);
+    try {
+      const response = await fetch("/api/algo/tones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipAddress: device.ipAddress,
+          password: device.apiPassword,
+          authMethod: device.authMethod,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setDeviceTones(data.tones);
+      } else {
+        alert("Failed to fetch tones: " + data.error);
+      }
+    } catch (error) {
+      console.error("Failed to fetch device tones:", error);
+      alert("Failed to connect to device");
+    } finally {
+      setLoadingTones(false);
+    }
+  };
+
+  const playDeviceTone = async (toneName: string) => {
+    const device = devices.find(d => d.id === selectedDevice);
+    if (!device) return;
+
+    setPlayingTone(toneName);
+    try {
+      const response = await fetch("/api/algo/distribute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device: {
+            ipAddress: device.ipAddress,
+            password: device.apiPassword,
+            authMethod: device.authMethod,
+          },
+          filename: toneName,
+          loop: false,
+          volume: 100,
+        }),
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        alert("Failed to play tone: " + data.error);
+      }
+    } catch (error) {
+      console.error("Failed to play tone:", error);
+    } finally {
+      setTimeout(() => setPlayingTone(null), 2000);
     }
   };
 
@@ -238,6 +323,73 @@ export default function AudioPage() {
             </Card>
           </div>
         )}
+
+        {/* Device Tones Section */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Radio className="h-5 w-5" />
+                  Device Tones
+                </CardTitle>
+                <CardDescription>
+                  Built-in tones on your Algo paging device
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={selectedDevice}
+                  onChange={(e) => setSelectedDevice(e.target.value)}
+                  className="w-48"
+                >
+                  <option value="">Select Device</option>
+                  {devices.filter(d => d.type === "8301").map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  variant="outline"
+                  onClick={fetchDeviceTones}
+                  disabled={!selectedDevice || loadingTones}
+                  isLoading={loadingTones}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Load Tones
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {deviceTones.length === 0 ? (
+              <p className="text-center text-gray-500 py-4">
+                Select a device and click &quot;Load Tones&quot; to see available tones
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {deviceTones.map((tone) => (
+                  <Button
+                    key={tone}
+                    variant={playingTone === tone ? "default" : "outline"}
+                    className="justify-start"
+                    onClick={() => playDeviceTone(tone)}
+                    disabled={playingTone !== null}
+                  >
+                    <Speaker className="mr-2 h-4 w-4" />
+                    {tone.replace(".wav", "")}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Uploaded Audio Files */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Uploaded Audio</h2>
+        </div>
 
         {/* Audio Files List */}
         {loading ? (

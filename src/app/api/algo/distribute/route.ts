@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
     await client.playTone({
       path: tonePath,
       loop,
+      mcast: true,
     });
 
     return NextResponse.json({ success: true });
