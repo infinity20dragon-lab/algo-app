@@ -110,28 +110,46 @@ export default function AudioPage() {
       d => device.linkedSpeakerIds?.includes(d.id)
     );
 
+    console.log("=== PLAYING TONE ===");
+    console.log("Selected device:", device.name, device.ipAddress);
+    console.log("Device type:", device.type);
+    console.log("LinkedSpeakerIds:", device.linkedSpeakerIds);
+    console.log("Linked speakers found:", linkedSpeakers.length);
+    if (linkedSpeakers.length > 0) {
+      console.log("Linked speaker details:", linkedSpeakers.map(s => ({
+        name: s.name,
+        ip: s.ipAddress,
+        type: s.type
+      })));
+    }
+
     setPlayingTone(toneName);
     try {
+      const requestBody = {
+        paging: {
+          ipAddress: device.ipAddress,
+          password: device.apiPassword,
+          authMethod: device.authMethod,
+        },
+        speakers: linkedSpeakers.map(s => ({
+          ipAddress: s.ipAddress,
+          password: s.apiPassword,
+          authMethod: s.authMethod,
+        })),
+        tone: toneName,
+        loop: false,
+      };
+
+      console.log("Request body:", JSON.stringify(requestBody, null, 2));
+
       const response = await fetch("/api/algo/play", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paging: {
-            ipAddress: device.ipAddress,
-            password: device.apiPassword,
-            authMethod: device.authMethod,
-          },
-          speakers: linkedSpeakers.map(s => ({
-            ipAddress: s.ipAddress,
-            password: s.apiPassword,
-            authMethod: s.authMethod,
-          })),
-          tone: toneName,
-          loop: false,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
+      console.log("Response:", data);
       if (!data.success) {
         alert("Failed to play tone: " + data.error);
       }
