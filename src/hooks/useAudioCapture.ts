@@ -35,6 +35,7 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
   const animationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isCapturingRef = useRef<boolean>(false);
 
   // Clean up on unmount
   useEffect(() => {
@@ -44,25 +45,45 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
   }, []);
 
   const updateAudioLevel = useCallback(() => {
-    if (!analyserNodeRef.current || !state.isCapturing) return;
+    if (!analyserNodeRef.current || !isCapturingRef.current) {
+      return;
+    }
 
     const analyser = analyserNodeRef.current;
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
 
-    // Calculate average level
-    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-    const level = Math.round((average / 255) * 100);
+    // Try both frequency and time domain data
+    const freqData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(freqData);
 
-    // Log occasionally for debugging
-    if (Math.random() < 0.01) { // Log ~1% of the time
-      console.log("Audio level:", level, "Average:", average);
+    const timeData = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(timeData);
+
+    // Calculate average from frequency data
+    const freqAverage = freqData.reduce((a, b) => a + b, 0) / freqData.length;
+    const freqLevel = Math.round((freqAverage / 255) * 100);
+
+    // Calculate RMS from time domain data
+    let sum = 0;
+    for (let i = 0; i < timeData.length; i++) {
+      const normalized = (timeData[i] - 128) / 128;
+      sum += normalized * normalized;
+    }
+    const rms = Math.sqrt(sum / timeData.length);
+    const timeLevel = Math.round(rms * 100);
+
+    // Use the higher of the two
+    const level = Math.max(freqLevel, timeLevel);
+
+    // Debug logging - log EVERY time for now
+    console.log("🎤 UPDATE CALLED - Freq:", freqLevel, "Time:", timeLevel, "Final:", level);
+    if (level > 0) {
+      console.log("   📊 AUDIO DETECTED! First 5 freq:", Array.from(freqData.slice(0, 5)));
     }
 
     setState((prev) => ({ ...prev, audioLevel: level }));
 
     animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-  }, [state.isCapturing]);
+  }, []); // No dependencies - use refs instead
 
   const startCapture = useCallback(async (deviceId?: string) => {
     try {
@@ -124,6 +145,8 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
       console.log("Audio nodes connected successfully");
       console.log("Starting level monitoring...");
 
+      // Set capturing flag BEFORE starting animation frame
+      isCapturingRef.current = true;
       setState((prev) => ({ ...prev, isCapturing: true }));
 
       // Start level monitoring
@@ -138,6 +161,9 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
   }, [updateAudioLevel]);
 
   const stopCapture = useCallback(() => {
+    // Stop capturing flag first
+    isCapturingRef.current = false;
+
     // Stop animation frame
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
