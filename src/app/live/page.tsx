@@ -63,6 +63,8 @@ export default function LiveBroadcastPage() {
     getInputDevices,
   } = useAudioCapture();
 
+  const [enablingDisablingSpeakers, setEnablingDisablingSpeakers] = useState(false);
+
   useEffect(() => {
     loadData();
     loadInputDevices();
@@ -90,6 +92,42 @@ export default function LiveBroadcastPage() {
   const loadInputDevices = async () => {
     const devices = await getInputDevices();
     setInputDevices(devices);
+  };
+
+  // Enable/disable speakers for paging devices
+  const controlSpeakers = async (enable: boolean) => {
+    setEnablingDisablingSpeakers(true);
+    console.log(`${enable ? 'Enabling' : 'Disabling'} speakers for live broadcast...`);
+
+    for (const deviceId of selectedDevices) {
+      const device = devices.find(d => d.id === deviceId);
+      if (!device) continue;
+
+      // Only control speakers for paging devices with linked speakers
+      if (device.type === "8301" && device.linkedSpeakerIds && device.linkedSpeakerIds.length > 0) {
+        const linkedSpeakers = devices.filter(d => device.linkedSpeakerIds?.includes(d.id));
+
+        try {
+          await fetch("/api/algo/speakers/mcast", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              speakers: linkedSpeakers.map(s => ({
+                ipAddress: s.ipAddress,
+                password: s.apiPassword,
+                authMethod: s.authMethod,
+              })),
+              enable,
+            }),
+          });
+          console.log(`Successfully ${enable ? 'enabled' : 'disabled'} speakers for ${device.name}`);
+        } catch (error) {
+          console.error(`Failed to control speakers for ${device.name}:`, error);
+        }
+      }
+    }
+
+    setEnablingDisablingSpeakers(false);
   };
 
   const toggleDevice = (deviceId: string) => {
@@ -364,12 +402,26 @@ export default function LiveBroadcastPage() {
                 {/* Capture Controls */}
                 <div className="flex gap-3">
                   {!isCapturing ? (
-                    <Button onClick={startCapture}>
+                    <Button
+                      onClick={async () => {
+                        await controlSpeakers(true); // Enable speakers
+                        startCapture();
+                      }}
+                      disabled={enablingDisablingSpeakers}
+                      isLoading={enablingDisablingSpeakers}
+                    >
                       <Mic className="mr-2 h-4 w-4" />
                       Start Capture
                     </Button>
                   ) : (
-                    <Button variant="destructive" onClick={stopCapture}>
+                    <Button
+                      variant="destructive"
+                      onClick={async () => {
+                        stopCapture();
+                        await controlSpeakers(false); // Disable speakers
+                      }}
+                      disabled={enablingDisablingSpeakers}
+                    >
                       <MicOff className="mr-2 h-4 w-4" />
                       Stop Capture
                     </Button>
