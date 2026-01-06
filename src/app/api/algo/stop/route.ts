@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AlgoClient } from "@/lib/algo/client";
-import type { AlgoAuthMethod, AlgoDeviceType } from "@/lib/algo/types";
+import type { AlgoAuthMethod } from "@/lib/algo/types";
 
 interface StopRequest {
-  device: {
+  paging: {
     ipAddress: string;
     password: string;
     authMethod: AlgoAuthMethod;
-    type?: AlgoDeviceType;
   };
   speakers?: Array<{
     ipAddress: string;
@@ -16,8 +15,8 @@ interface StopRequest {
   }>;
 }
 
-// Helper to disable speakers
-async function disableSpeakers(
+// Helper to disable speaker multicast mode
+async function disableSpeakersMcast(
   speakers: StopRequest["speakers"]
 ): Promise<void> {
   if (!speakers || speakers.length === 0) return;
@@ -32,7 +31,7 @@ async function disableSpeakers(
         });
         await client.setSetting({ "mcast.mode": "0" });
       } catch (error) {
-        console.error(`Failed to disable speaker ${speaker.ipAddress}:`, error);
+        console.error(`Failed to disable mcast for ${speaker.ipAddress}:`, error);
       }
     })
   );
@@ -41,35 +40,42 @@ async function disableSpeakers(
 export async function POST(request: NextRequest) {
   try {
     const body: StopRequest = await request.json();
-    const { device, speakers } = body;
+    const { paging, speakers } = body;
 
-    if (!device?.ipAddress || !device?.password) {
+    if (!paging?.ipAddress || !paging?.password) {
       return NextResponse.json(
-        { error: "Device information is required" },
+        { error: "Paging device info is required" },
         { status: 400 }
       );
     }
 
-    const client = new AlgoClient({
-      ipAddress: device.ipAddress,
-      password: device.password,
-      authMethod: device.authMethod || "standard",
+    const pagingClient = new AlgoClient({
+      ipAddress: paging.ipAddress,
+      password: paging.password,
+      authMethod: paging.authMethod || "basic",
     });
 
-    // Stop the tone
-    await client.stopTone();
+    // Step 1: Stop playback on paging device
+    console.log("Stopping playback...");
+    await pagingClient.stopTone();
 
-    // Disable speakers if this is a paging device with linked speakers
-    if (device.type === "8301" && speakers && speakers.length > 0) {
+    // Step 2: Disable speakers (if any)
+    if (speakers && speakers.length > 0) {
+      // Small delay to ensure audio fully stops
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       console.log("Disabling speakers...");
-      await disableSpeakers(speakers);
+      await disableSpeakersMcast(speakers);
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: "Playback stopped and speakers disabled",
+    });
   } catch (error) {
     console.error("Stop error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to stop audio" },
+      { error: error instanceof Error ? error.message : "Failed to stop" },
       { status: 500 }
     );
   }

@@ -1,32 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AlgoClient } from "@/lib/algo/client";
-import type { AlgoAuthMethod, AlgoDeviceType } from "@/lib/algo/types";
+import type { AlgoAuthMethod } from "@/lib/algo/types";
 
-interface DistributeRequest {
-  device: {
+interface PlayRequest {
+  paging: {
     ipAddress: string;
     password: string;
     authMethod: AlgoAuthMethod;
-    type?: AlgoDeviceType;
   };
-  speakers?: Array<{
+  speakers: Array<{
     ipAddress: string;
     password: string;
     authMethod: AlgoAuthMethod;
   }>;
-  audioUrl?: string;
-  filename?: string;
-  loop: boolean;
-  volume: number;
+  tone: string;
+  loop?: boolean;
 }
 
 // Helper to control speaker multicast mode
 async function setSpeakersMcast(
-  speakers: DistributeRequest["speakers"],
+  speakers: PlayRequest["speakers"],
   enable: boolean
 ): Promise<void> {
-  if (!speakers || speakers.length === 0) return;
-
   const mcastMode = enable ? "2" : "0";
 
   await Promise.all(
@@ -45,19 +40,20 @@ async function setSpeakersMcast(
   );
 }
 
-// Helper to wait for playback to complete
+// Helper to wait for paging device to finish playing
 async function waitForPlaybackComplete(
   client: AlgoClient,
   maxWaitMs: number = 30000
 ): Promise<void> {
   const startTime = Date.now();
-  const pollInterval = 500;
+  const pollInterval = 500; // Check every 500ms
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
       const status = await client.getStatus();
       const currentAction = status["Current Action"];
 
+      // If no action or action is "None", playback is complete
       if (!currentAction || currentAction === "None") {
         return;
       }
@@ -65,59 +61,65 @@ async function waitForPlaybackComplete(
       console.error("Status poll error:", error);
     }
 
+    // Wait before next poll
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
+  // Timeout reached - return anyway to ensure speakers get disabled
   console.warn("Playback wait timeout reached");
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body: DistributeRequest = await request.json();
-    const { device, speakers, filename, loop, volume } = body;
+    const body: PlayRequest = await request.json();
+    const { paging, speakers, tone, loop = false } = body;
 
-    if (!device?.ipAddress || !device?.password) {
+    if (!paging?.ipAddress || !paging?.password) {
       return NextResponse.json(
-        { error: "Device information is required" },
+        { error: "Paging device info is required" },
         { status: 400 }
       );
     }
 
-    const client = new AlgoClient({
-      ipAddress: device.ipAddress,
-      password: device.password,
-      authMethod: device.authMethod || "standard",
+    if (!tone) {
+      return NextResponse.json(
+        { error: "Tone filename is required" },
+        { status: 400 }
+      );
+    }
+
+    const pagingClient = new AlgoClient({
+      ipAddress: paging.ipAddress,
+      password: paging.password,
+      authMethod: paging.authMethod || "basic",
     });
 
-    // Step 1: Enable speakers (if this is a paging device with linked speakers)
-    if (device.type === "8301" && speakers && speakers.length > 0) {
+    // Step 1: Enable speakers (if any)
+    if (speakers && speakers.length > 0) {
       console.log("Enabling speakers...");
       await setSpeakersMcast(speakers, true);
+
+      // Small delay to ensure speakers are ready
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    // Step 2: Set volume if different from default
-    if (volume !== undefined) {
-      const volumeDb = Math.round((volume / 100) * 42 - 42);
-      try {
-        await client.setSetting({ "audio.page.vol": `${volumeDb}dB` });
-      } catch (e) {
-        console.warn("Failed to set volume:", e);
-      }
-    }
-
-    // Step 3: Play tone
-    const tonePath = filename || "chime.wav";
-    await client.playTone({
-      path: tonePath,
+    // Step 2: Play the tone
+    console.log(`Playing tone: ${tone}`);
+    await pagingClient.playTone({
+      path: tone,
       loop,
       mcast: true,
     });
 
-    // Step 4: If not looping and has speakers, wait and disable
-    if (!loop && device.type === "8301" && speakers && speakers.length > 0) {
-      await waitForPlaybackComplete(client);
+    // Step 3: If not looping, wait for completion then disable speakers
+    if (!loop && speakers && speakers.length > 0) {
+      // Wait for playback to complete (polls status)
+      await waitForPlaybackComplete(pagingClient);
+
+      // Small buffer after playback ends
       await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Disable speakers
       console.log("Disabling speakers...");
       await setSpeakersMcast(speakers, false);
     }
@@ -129,9 +131,9 @@ export async function POST(request: NextRequest) {
         : "Playback complete",
     });
   } catch (error) {
-    console.error("Distribute error:", error);
+    console.error("Play error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to distribute audio" },
+      { error: error instanceof Error ? error.message : "Failed to play" },
       { status: 500 }
     );
   }

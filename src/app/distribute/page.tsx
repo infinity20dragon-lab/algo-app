@@ -100,6 +100,11 @@ export default function DistributePage() {
       const device = devices.find((d) => d.id === deviceId);
       if (!device) continue;
 
+      // Get linked speakers if this is a paging device
+      const linkedSpeakers = device.type === "8301" && device.linkedSpeakerIds
+        ? devices.filter(d => device.linkedSpeakerIds?.includes(d.id))
+        : [];
+
       try {
         const response = await fetch("/api/algo/distribute", {
           method: "POST",
@@ -109,7 +114,13 @@ export default function DistributePage() {
               ipAddress: device.ipAddress,
               password: device.apiPassword,
               authMethod: device.authMethod,
+              type: device.type,
             },
+            speakers: linkedSpeakers.map(s => ({
+              ipAddress: s.ipAddress,
+              password: s.apiPassword,
+              authMethod: s.authMethod,
+            })),
             audioUrl: audioFile?.storageUrl,
             filename: audioFile?.filename,
             loop,
@@ -161,6 +172,11 @@ export default function DistributePage() {
       const device = devices.find((d) => d.id === deviceId);
       if (!device) continue;
 
+      // Get linked speakers if this is a paging device
+      const linkedSpeakers = device.type === "8301" && device.linkedSpeakerIds
+        ? devices.filter(d => device.linkedSpeakerIds?.includes(d.id))
+        : [];
+
       try {
         await fetch("/api/algo/distribute/stop", {
           method: "POST",
@@ -170,7 +186,13 @@ export default function DistributePage() {
               ipAddress: device.ipAddress,
               password: device.apiPassword,
               authMethod: device.authMethod,
+              type: device.type,
             },
+            speakers: linkedSpeakers.map(s => ({
+              ipAddress: s.ipAddress,
+              password: s.apiPassword,
+              authMethod: s.authMethod,
+            })),
           }),
         });
       } catch (error) {

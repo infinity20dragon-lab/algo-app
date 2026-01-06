@@ -302,7 +302,7 @@ export class AlgoClient {
     const response = await fetch(url, {
       method: "PUT",
       headers,
-      body: data,
+      body: new Uint8Array(data),
     });
 
     if (!response.ok) {

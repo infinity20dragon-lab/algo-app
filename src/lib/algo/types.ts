@@ -15,6 +15,8 @@ export interface AlgoDevice {
   lastSeen: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // For paging devices (8301): IDs of linked speakers to auto-enable/disable
+  linkedSpeakerIds?: string[];
 }
 
 // Algo API Response Types

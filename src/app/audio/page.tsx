@@ -105,20 +105,29 @@ export default function AudioPage() {
     const device = devices.find(d => d.id === selectedDevice);
     if (!device) return;
 
+    // Get linked speakers for this paging device
+    const linkedSpeakers = devices.filter(
+      d => device.linkedSpeakerIds?.includes(d.id)
+    );
+
     setPlayingTone(toneName);
     try {
-      const response = await fetch("/api/algo/distribute", {
+      const response = await fetch("/api/algo/play", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          device: {
+          paging: {
             ipAddress: device.ipAddress,
             password: device.apiPassword,
             authMethod: device.authMethod,
           },
-          filename: toneName,
+          speakers: linkedSpeakers.map(s => ({
+            ipAddress: s.ipAddress,
+            password: s.apiPassword,
+            authMethod: s.authMethod,
+          })),
+          tone: toneName,
           loop: false,
-          volume: 100,
         }),
       });
 
@@ -129,7 +138,7 @@ export default function AudioPage() {
     } catch (error) {
       console.error("Failed to play tone:", error);
     } finally {
-      setTimeout(() => setPlayingTone(null), 2000);
+      setPlayingTone(null);
     }
   };
 

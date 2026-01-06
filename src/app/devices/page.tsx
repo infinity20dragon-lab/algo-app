@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2, Link2 } from "lucide-react";
 import { getDevices, addDevice, updateDevice, deleteDevice } from "@/lib/firebase/firestore";
 import type { AlgoDevice, AlgoDeviceType, AlgoAuthMethod } from "@/lib/algo/types";
 import { formatDate, isValidIpAddress } from "@/lib/utils";
@@ -27,6 +27,7 @@ export default function DevicesPage() {
     apiPassword: "algo",
     zone: "",
     volume: 50,
+    linkedSpeakerIds: [] as string[],
   });
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,6 +57,7 @@ export default function DevicesPage() {
       apiPassword: "algo",
       zone: "",
       volume: 50,
+      linkedSpeakerIds: [],
     });
     setFormError("");
     setEditingDevice(null);
@@ -75,6 +77,7 @@ export default function DevicesPage() {
       apiPassword: device.apiPassword,
       zone: device.zone,
       volume: device.volume,
+      linkedSpeakerIds: device.linkedSpeakerIds || [],
     });
     setEditingDevice(device);
     setShowForm(true);
@@ -307,6 +310,53 @@ export default function DevicesPage() {
                     />
                   </div>
 
+                  {/* Speaker Linking (only for 8301 paging devices) */}
+                  {formData.type === "8301" && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Link2 className="h-4 w-4" />
+                        Linked Speakers
+                      </Label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Speakers will auto-enable when playing and auto-disable when done (no white noise)
+                      </p>
+                      <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-2">
+                        {devices.filter(d => d.type !== "8301" && d.id !== editingDevice?.id).length === 0 ? (
+                          <p className="text-sm text-gray-400 py-2 text-center">
+                            No speakers available. Add speakers first.
+                          </p>
+                        ) : (
+                          devices
+                            .filter(d => d.type !== "8301" && d.id !== editingDevice?.id)
+                            .map(speaker => (
+                              <label key={speaker.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={formData.linkedSpeakerIds.includes(speaker.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setFormData({
+                                        ...formData,
+                                        linkedSpeakerIds: [...formData.linkedSpeakerIds, speaker.id],
+                                      });
+                                    } else {
+                                      setFormData({
+                                        ...formData,
+                                        linkedSpeakerIds: formData.linkedSpeakerIds.filter(id => id !== speaker.id),
+                                      });
+                                    }
+                                  }}
+                                  className="rounded border-gray-300"
+                                />
+                                <span className="text-sm">{speaker.name}</span>
+                                <span className="text-xs text-gray-400">({speaker.ipAddress})</span>
+                              </label>
+                            ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex justify-end gap-2 pt-4">
                     <Button
                       type="button"
@@ -374,6 +424,14 @@ export default function DevicesPage() {
                     <Volume2 className="h-4 w-4" />
                     <span>Volume: {device.volume}%</span>
                   </div>
+                  {device.type === "8301" && device.linkedSpeakerIds && device.linkedSpeakerIds.length > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-blue-600">
+                      <Link2 className="h-4 w-4" />
+                      <span>
+                        {device.linkedSpeakerIds.length} linked speaker{device.linkedSpeakerIds.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-400">
                     Last seen: {formatDate(device.lastSeen)}
                   </p>
