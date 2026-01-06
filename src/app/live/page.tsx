@@ -43,6 +43,7 @@ export default function LiveBroadcastPage() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [saving, setSaving] = useState(false);
   const [playingPreTone, setPlayingPreTone] = useState(false);
+  const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
 
   const preToneAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -354,7 +355,11 @@ export default function LiveBroadcastPage() {
                 {/* Input Device Selection */}
                 <div className="space-y-2">
                   <Label>Input Device</Label>
-                  <Select disabled={isCapturing}>
+                  <Select
+                    value={selectedInputDevice}
+                    onChange={(e) => setSelectedInputDevice(e.target.value)}
+                    disabled={isCapturing}
+                  >
                     <option value="">Default Input</option>
                     {inputDevices.map((device) => (
                       <option key={device.deviceId} value={device.deviceId}>
@@ -362,6 +367,9 @@ export default function LiveBroadcastPage() {
                       </option>
                     ))}
                   </Select>
+                  <p className="text-xs text-gray-500">
+                    Select microphone, line-in, or aux input
+                  </p>
                 </div>
 
                 {/* Audio Level Meter */}
@@ -405,7 +413,7 @@ export default function LiveBroadcastPage() {
                     <Button
                       onClick={async () => {
                         await controlSpeakers(true); // Enable speakers
-                        startCapture();
+                        startCapture(selectedInputDevice || undefined); // Pass selected device
                       }}
                       disabled={enablingDisablingSpeakers}
                       isLoading={enablingDisablingSpeakers}

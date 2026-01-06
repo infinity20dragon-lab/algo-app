@@ -54,29 +54,56 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
     const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
     const level = Math.round((average / 255) * 100);
 
+    // Log occasionally for debugging
+    if (Math.random() < 0.01) { // Log ~1% of the time
+      console.log("Audio level:", level, "Average:", average);
+    }
+
     setState((prev) => ({ ...prev, audioLevel: level }));
 
     animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
   }, [state.isCapturing]);
 
-  const startCapture = useCallback(async () => {
+  const startCapture = useCallback(async (deviceId?: string) => {
     try {
       setState((prev) => ({ ...prev, error: null }));
 
+      console.log("=== STARTING AUDIO CAPTURE ===");
+      console.log("Requested device ID:", deviceId || "default");
+
       // Request microphone/line-in access
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      };
+
+      // If a specific device is requested, use it
+      if (deviceId) {
+        audioConstraints.deviceId = { exact: deviceId };
+      }
+
+      console.log("Audio constraints:", audioConstraints);
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
+        audio: audioConstraints,
         video: false,
       });
+
+      console.log("Got media stream:", stream);
+      console.log("Audio tracks:", stream.getAudioTracks());
+      const track = stream.getAudioTracks()[0];
+      if (track) {
+        console.log("Track label:", track.label);
+        console.log("Track settings:", track.getSettings());
+        console.log("Track enabled:", track.enabled);
+      }
 
       mediaStreamRef.current = stream;
 
       // Create audio context
       const audioContext = new AudioContext();
+      console.log("Audio context state:", audioContext.state);
       audioContextRef.current = audioContext;
 
       // Create nodes
@@ -94,10 +121,14 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
       sourceNode.connect(gainNode);
       gainNode.connect(analyserNode);
 
+      console.log("Audio nodes connected successfully");
+      console.log("Starting level monitoring...");
+
       setState((prev) => ({ ...prev, isCapturing: true }));
 
       // Start level monitoring
       animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+      console.log("=== AUDIO CAPTURE STARTED ===");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to access audio input";
