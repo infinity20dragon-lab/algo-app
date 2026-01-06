@@ -44,8 +44,11 @@ export default function LiveBroadcastPage() {
   const [saving, setSaving] = useState(false);
   const [playingPreTone, setPlayingPreTone] = useState(false);
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
+  const [audioDetected, setAudioDetected] = useState(false);
+  const [speakersEnabled, setSpeakersEnabled] = useState(false);
 
   const preToneAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     isCapturing,
@@ -74,6 +77,55 @@ export default function LiveBroadcastPage() {
   useEffect(() => {
     setGainVolume(volume);
   }, [volume, setGainVolume]);
+
+  // Audio activity detection - automatically enable/disable speakers
+  useEffect(() => {
+    if (!isCapturing) return;
+
+    const AUDIO_THRESHOLD = 5; // 5% minimum level to consider "audio detected"
+    const ENABLE_DELAY = 300; // Enable speakers after 300ms of audio
+    const DISABLE_DELAY = 2000; // Disable speakers after 2s of silence
+
+    console.log("Audio level:", audioLevel);
+
+    if (audioLevel > AUDIO_THRESHOLD) {
+      // Audio detected
+      if (!audioDetected) {
+        console.log("Audio activity detected!");
+        setAudioDetected(true);
+      }
+
+      // Clear any pending disable timeout
+      if (audioDetectionTimeoutRef.current) {
+        clearTimeout(audioDetectionTimeoutRef.current);
+        audioDetectionTimeoutRef.current = null;
+      }
+
+      // Enable speakers if not already enabled
+      if (!speakersEnabled) {
+        console.log("Enabling speakers due to audio activity...");
+        controlSpeakers(true).then(() => {
+          setSpeakersEnabled(true);
+        });
+      }
+    } else {
+      // No audio / silence
+      if (audioDetected && speakersEnabled) {
+        // Start countdown to disable speakers
+        if (!audioDetectionTimeoutRef.current) {
+          console.log("Silence detected, will disable speakers in", DISABLE_DELAY, "ms");
+          audioDetectionTimeoutRef.current = setTimeout(() => {
+            console.log("Disabling speakers due to silence...");
+            controlSpeakers(false).then(() => {
+              setSpeakersEnabled(false);
+              setAudioDetected(false);
+            });
+            audioDetectionTimeoutRef.current = null;
+          }, DISABLE_DELAY);
+        }
+      }
+    }
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled]);
 
   const loadData = async () => {
     try {
@@ -327,9 +379,9 @@ export default function LiveBroadcastPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Live Broadcast</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Live Audio Monitoring</h1>
           <p className="text-gray-500">
-            Capture, transform, and broadcast live audio to your devices
+            Automatically enable speakers when audio is detected, disable when silent
           </p>
         </div>
 
@@ -408,31 +460,48 @@ export default function LiveBroadcastPage() {
                 </div>
 
                 {/* Capture Controls */}
-                <div className="flex gap-3">
-                  {!isCapturing ? (
-                    <Button
-                      onClick={async () => {
-                        await controlSpeakers(true); // Enable speakers
-                        startCapture(selectedInputDevice || undefined); // Pass selected device
-                      }}
-                      disabled={enablingDisablingSpeakers}
-                      isLoading={enablingDisablingSpeakers}
-                    >
-                      <Mic className="mr-2 h-4 w-4" />
-                      Start Capture
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="destructive"
-                      onClick={async () => {
-                        stopCapture();
-                        await controlSpeakers(false); // Disable speakers
-                      }}
-                      disabled={enablingDisablingSpeakers}
-                    >
-                      <MicOff className="mr-2 h-4 w-4" />
-                      Stop Capture
-                    </Button>
+                <div className="space-y-3">
+                  <div className="flex gap-3">
+                    {!isCapturing ? (
+                      <Button
+                        onClick={() => startCapture(selectedInputDevice || undefined)}
+                      >
+                        <Mic className="mr-2 h-4 w-4" />
+                        Start Monitoring
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          stopCapture();
+                          // Ensure speakers are disabled when stopping
+                          if (speakersEnabled) {
+                            controlSpeakers(false).then(() => setSpeakersEnabled(false));
+                          }
+                        }}
+                      >
+                        <MicOff className="mr-2 h-4 w-4" />
+                        Stop Monitoring
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Audio Detection Status */}
+                  {isCapturing && (
+                    <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Audio Activity:</span>
+                        <Badge variant={audioDetected ? "success" : "secondary"}>
+                          {audioDetected ? "Detected" : "Silent"}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Speakers:</span>
+                        <Badge variant={speakersEnabled ? "success" : "secondary"}>
+                          {speakersEnabled ? "Enabled" : "Disabled"}
+                        </Badge>
+                      </div>
+                    </div>
                   )}
                 </div>
               </CardContent>
