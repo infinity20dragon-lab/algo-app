@@ -259,11 +259,22 @@ export default function LiveBroadcastPage() {
             }),
           });
 
+          const responseData = await response.json();
+
           if (!response.ok) {
-            const errorData = await response.json();
-            console.error(`Failed to ${enable ? 'enable' : 'disable'} speakers for ${device.name}:`, errorData);
+            console.error(`Failed to ${enable ? 'enable' : 'disable'} speakers for ${device.name}:`, responseData);
           } else {
-            console.log(`Successfully ${enable ? 'enabled' : 'disabled'} speakers for ${device.name}`);
+            // Check if individual speakers succeeded
+            if (responseData.results) {
+              responseData.results.forEach((result: any) => {
+                if (result.success) {
+                  console.log(`✅ Speaker ${result.ip}: ${enable ? 'enabled' : 'disabled'}`);
+                } else {
+                  console.error(`❌ Speaker ${result.ip}: ${result.error}`);
+                }
+              });
+            }
+            console.log(`Speaker control complete for ${device.name}. Overall success: ${responseData.success}`);
           }
         } catch (error) {
           console.error(`Failed to control speakers for ${device.name}:`, error);
