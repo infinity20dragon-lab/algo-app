@@ -105,12 +105,14 @@ export default function LiveBroadcastPage() {
       if (!speakersEnabled && !controllingSpakersRef.current) {
         controllingSpakersRef.current = true;
         setSpeakersEnabled(true); // Set state immediately (optimistic)
-        controlSpeakers(true).then(() => {
+
+        // Enable speakers
+        (async () => {
+          await controlSpeakers(true);
           // Start volume ramp after speakers are enabled
           startVolumeRamp();
-        }).finally(() => {
           controllingSpakersRef.current = false;
-        });
+        })();
       }
     } else {
       // No audio / silence
@@ -122,18 +124,20 @@ export default function LiveBroadcastPage() {
               controllingSpakersRef.current = true;
               setSpeakersEnabled(false); // Set state immediately (optimistic)
               setAudioDetected(false);
-              // Stop volume ramp and reset to 0
-              stopVolumeRamp();
-              controlSpeakers(false).finally(() => {
+
+              // Stop and disable
+              (async () => {
+                stopVolumeRamp();
+                await controlSpeakers(false);
                 controllingSpakersRef.current = false;
-              });
+              })();
             }
             audioDetectionTimeoutRef.current = null;
           }, DISABLE_DELAY);
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, startVolumeRamp, stopVolumeRamp, controlSpeakers]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled]);
 
   const loadData = async () => {
     try {
