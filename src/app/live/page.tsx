@@ -49,6 +49,9 @@ export default function LiveBroadcastPage() {
 
   const preToneAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controllingSpakersRef = useRef<boolean>(false);
+  const volumeRampIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentVolumeRef = useRef<number>(0);
 
   const {
     isCapturing,
@@ -83,8 +86,7 @@ export default function LiveBroadcastPage() {
     if (!isCapturing) return;
 
     const AUDIO_THRESHOLD = 5; // 5% minimum level to consider "audio detected"
-    const ENABLE_DELAY = 300; // Enable speakers after 300ms of audio
-    const DISABLE_DELAY = 120000; // Disable speakers after 2 minutes of silence
+    const DISABLE_DELAY = 20000; // Disable speakers after 20 seconds of silence
 
     if (audioLevel > AUDIO_THRESHOLD) {
       // Audio detected
@@ -98,10 +100,15 @@ export default function LiveBroadcastPage() {
         audioDetectionTimeoutRef.current = null;
       }
 
-      // Enable speakers if not already enabled
-      if (!speakersEnabled) {
+      // Enable speakers if not already enabled and not currently controlling
+      if (!speakersEnabled && !controllingSpakersRef.current) {
+        controllingSpakersRef.current = true;
+        setSpeakersEnabled(true); // Set state immediately (optimistic)
         controlSpeakers(true).then(() => {
-          setSpeakersEnabled(true);
+          // Start volume ramp after speakers are enabled
+          startVolumeRamp();
+        }).finally(() => {
+          controllingSpakersRef.current = false;
         });
       }
     } else {
@@ -110,10 +117,16 @@ export default function LiveBroadcastPage() {
         // Start countdown to disable speakers
         if (!audioDetectionTimeoutRef.current) {
           audioDetectionTimeoutRef.current = setTimeout(() => {
-            controlSpeakers(false).then(() => {
-              setSpeakersEnabled(false);
+            if (!controllingSpakersRef.current) {
+              controllingSpakersRef.current = true;
+              setSpeakersEnabled(false); // Set state immediately (optimistic)
               setAudioDetected(false);
-            });
+              // Stop volume ramp and reset to 0
+              stopVolumeRamp();
+              controlSpeakers(false).finally(() => {
+                controllingSpakersRef.current = false;
+              });
+            }
             audioDetectionTimeoutRef.current = null;
           }, DISABLE_DELAY);
         }
@@ -139,6 +152,79 @@ export default function LiveBroadcastPage() {
   const loadInputDevices = async () => {
     const devices = await getInputDevices();
     setInputDevices(devices);
+  };
+
+  // Set volume on all paging devices
+  const setDevicesVolume = async (volumePercent: number) => {
+    for (const deviceId of selectedDevices) {
+      const device = devices.find(d => d.id === deviceId);
+      if (!device) continue;
+
+      if (device.type === "8301") {
+        try {
+          // Convert 0-100 to -42dB to 0dB
+          const volumeDb = Math.round((volumePercent / 100) * 42 - 42);
+
+          await fetch("/api/algo/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ipAddress: device.ipAddress,
+              password: device.apiPassword,
+              authMethod: device.authMethod,
+              settings: {
+                "audio.page.vol": `${volumeDb}dB`,
+              },
+            }),
+          });
+        } catch (error) {
+          console.error(`Failed to set volume for ${device.name}:`, error);
+        }
+      }
+    }
+  };
+
+  // Ramp volume from 0 to 100 over 10 seconds
+  const startVolumeRamp = () => {
+    // Clear any existing ramp
+    if (volumeRampIntervalRef.current) {
+      clearInterval(volumeRampIntervalRef.current);
+    }
+
+    currentVolumeRef.current = 0;
+    const targetVolume = 100;
+    const rampDuration = 10000; // 10 seconds
+    const stepInterval = 500; // Update every 500ms
+    const steps = rampDuration / stepInterval;
+    const volumeIncrement = targetVolume / steps;
+
+    // Set initial volume to 0
+    setDevicesVolume(0);
+
+    volumeRampIntervalRef.current = setInterval(() => {
+      currentVolumeRef.current += volumeIncrement;
+
+      if (currentVolumeRef.current >= targetVolume) {
+        currentVolumeRef.current = targetVolume;
+        setDevicesVolume(targetVolume);
+        if (volumeRampIntervalRef.current) {
+          clearInterval(volumeRampIntervalRef.current);
+          volumeRampIntervalRef.current = null;
+        }
+      } else {
+        setDevicesVolume(currentVolumeRef.current);
+      }
+    }, stepInterval);
+  };
+
+  // Stop volume ramp and reset to 0
+  const stopVolumeRamp = () => {
+    if (volumeRampIntervalRef.current) {
+      clearInterval(volumeRampIntervalRef.current);
+      volumeRampIntervalRef.current = null;
+    }
+    currentVolumeRef.current = 0;
+    setDevicesVolume(0);
   };
 
   // Enable/disable speakers for paging devices
@@ -466,9 +552,15 @@ export default function LiveBroadcastPage() {
                         variant="destructive"
                         onClick={() => {
                           stopCapture();
+                          // Stop volume ramp
+                          stopVolumeRamp();
                           // Ensure speakers are disabled when stopping
-                          if (speakersEnabled) {
-                            controlSpeakers(false).then(() => setSpeakersEnabled(false));
+                          if (speakersEnabled && !controllingSpakersRef.current) {
+                            controllingSpakersRef.current = true;
+                            setSpeakersEnabled(false);
+                            controlSpeakers(false).finally(() => {
+                              controllingSpakersRef.current = false;
+                            });
                           }
                         }}
                       >
