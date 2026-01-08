@@ -74,11 +74,10 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
     // Use the higher of the two
     const level = Math.max(freqLevel, timeLevel);
 
-    // Debug logging - log EVERY time for now
-    console.log("🎤 UPDATE CALLED - Freq:", freqLevel, "Time:", timeLevel, "Final:", level);
-    if (level > 0) {
-      console.log("   📊 AUDIO DETECTED! First 5 freq:", Array.from(freqData.slice(0, 5)));
-    }
+    // Optional: Uncomment for debugging
+    // if (Math.random() < 0.01) {
+    //   console.log("Audio level:", level);
+    // }
 
     setState((prev) => ({ ...prev, audioLevel: level }));
 
@@ -88,9 +87,6 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
   const startCapture = useCallback(async (deviceId?: string) => {
     try {
       setState((prev) => ({ ...prev, error: null }));
-
-      console.log("=== STARTING AUDIO CAPTURE ===");
-      console.log("Requested device ID:", deviceId || "default");
 
       // Request microphone/line-in access
       const audioConstraints: MediaTrackConstraints = {
@@ -104,27 +100,15 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
         audioConstraints.deviceId = { exact: deviceId };
       }
 
-      console.log("Audio constraints:", audioConstraints);
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
         video: false,
       });
 
-      console.log("Got media stream:", stream);
-      console.log("Audio tracks:", stream.getAudioTracks());
-      const track = stream.getAudioTracks()[0];
-      if (track) {
-        console.log("Track label:", track.label);
-        console.log("Track settings:", track.getSettings());
-        console.log("Track enabled:", track.enabled);
-      }
-
       mediaStreamRef.current = stream;
 
       // Create audio context
       const audioContext = new AudioContext();
-      console.log("Audio context state:", audioContext.state);
       audioContextRef.current = audioContext;
 
       // Create nodes
@@ -142,16 +126,12 @@ export function useAudioCapture(options: UseAudioCaptureOptions = {}) {
       sourceNode.connect(gainNode);
       gainNode.connect(analyserNode);
 
-      console.log("Audio nodes connected successfully");
-      console.log("Starting level monitoring...");
-
       // Set capturing flag BEFORE starting animation frame
       isCapturingRef.current = true;
       setState((prev) => ({ ...prev, isCapturing: true }));
 
       // Start level monitoring
       animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-      console.log("=== AUDIO CAPTURE STARTED ===");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to access audio input";

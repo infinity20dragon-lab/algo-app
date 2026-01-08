@@ -23,25 +23,21 @@ async function setSpeakersMcast(
   enable: boolean
 ): Promise<void> {
   const mcastMode = enable ? "2" : "0";
-  console.log(`Setting speakers mcast.mode to ${mcastMode} (${enable ? 'enabled' : 'disabled'})`);
 
   await Promise.all(
     speakers.map(async (speaker) => {
       try {
-        console.log(`  - Setting ${speaker.ipAddress} to mcast.mode=${mcastMode}`);
         const client = new AlgoClient({
           ipAddress: speaker.ipAddress,
           password: speaker.password,
           authMethod: speaker.authMethod || "basic",
         });
         await client.setSetting({ "mcast.mode": mcastMode });
-        console.log(`  - Successfully set ${speaker.ipAddress} to mcast.mode=${mcastMode}`);
       } catch (error) {
-        console.error(`  - Failed to set mcast for ${speaker.ipAddress}:`, error);
+        console.error(`Failed to set mcast for ${speaker.ipAddress}:`, error);
       }
     })
   );
-  console.log(`Finished setting mcast mode for all speakers`);
 }
 
 // Helper to wait for paging device to finish playing
@@ -78,15 +74,6 @@ export async function POST(request: NextRequest) {
     const body: PlayRequest = await request.json();
     const { paging, speakers, tone, loop = false } = body;
 
-    console.log("=== PLAY REQUEST ===");
-    console.log("Paging device:", paging.ipAddress);
-    console.log("Speakers received:", speakers?.length || 0);
-    if (speakers && speakers.length > 0) {
-      console.log("Speaker IPs:", speakers.map(s => s.ipAddress));
-    }
-    console.log("Tone:", tone);
-    console.log("Loop:", loop);
-
     if (!paging?.ipAddress || !paging?.password) {
       return NextResponse.json(
         { error: "Paging device info is required" },
@@ -109,18 +96,12 @@ export async function POST(request: NextRequest) {
 
     // Step 1: Enable speakers (if any)
     if (speakers && speakers.length > 0) {
-      console.log("Enabling speakers...");
       await setSpeakersMcast(speakers, true);
-      console.log("Speakers enabled successfully");
-
       // Small delay to ensure speakers are ready
       await new Promise((resolve) => setTimeout(resolve, 300));
-    } else {
-      console.log("No speakers to enable");
     }
 
     // Step 2: Play the tone
-    console.log(`Playing tone: ${tone}`);
     await pagingClient.playTone({
       path: tone,
       loop,

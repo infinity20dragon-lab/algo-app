@@ -84,14 +84,11 @@ export default function LiveBroadcastPage() {
 
     const AUDIO_THRESHOLD = 5; // 5% minimum level to consider "audio detected"
     const ENABLE_DELAY = 300; // Enable speakers after 300ms of audio
-    const DISABLE_DELAY = 2000; // Disable speakers after 2s of silence
-
-    console.log("Audio level:", audioLevel);
+    const DISABLE_DELAY = 120000; // Disable speakers after 2 minutes of silence
 
     if (audioLevel > AUDIO_THRESHOLD) {
       // Audio detected
       if (!audioDetected) {
-        console.log("Audio activity detected!");
         setAudioDetected(true);
       }
 
@@ -103,7 +100,6 @@ export default function LiveBroadcastPage() {
 
       // Enable speakers if not already enabled
       if (!speakersEnabled) {
-        console.log("Enabling speakers due to audio activity...");
         controlSpeakers(true).then(() => {
           setSpeakersEnabled(true);
         });
@@ -113,9 +109,7 @@ export default function LiveBroadcastPage() {
       if (audioDetected && speakersEnabled) {
         // Start countdown to disable speakers
         if (!audioDetectionTimeoutRef.current) {
-          console.log("Silence detected, will disable speakers in", DISABLE_DELAY, "ms");
           audioDetectionTimeoutRef.current = setTimeout(() => {
-            console.log("Disabling speakers due to silence...");
             controlSpeakers(false).then(() => {
               setSpeakersEnabled(false);
               setAudioDetected(false);
@@ -150,7 +144,6 @@ export default function LiveBroadcastPage() {
   // Enable/disable speakers for paging devices
   const controlSpeakers = async (enable: boolean) => {
     setEnablingDisablingSpeakers(true);
-    console.log(`${enable ? 'Enabling' : 'Disabling'} speakers for live broadcast...`);
 
     for (const deviceId of selectedDevices) {
       const device = devices.find(d => d.id === deviceId);
@@ -173,7 +166,6 @@ export default function LiveBroadcastPage() {
               enable,
             }),
           });
-          console.log(`Successfully ${enable ? 'enabled' : 'disabled'} speakers for ${device.name}`);
         } catch (error) {
           console.error(`Failed to control speakers for ${device.name}:`, error);
         }
