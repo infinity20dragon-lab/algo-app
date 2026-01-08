@@ -46,6 +46,7 @@ export default function LiveBroadcastPage() {
   const [selectedInputDevice, setSelectedInputDevice] = useState<string>("");
   const [audioDetected, setAudioDetected] = useState(false);
   const [speakersEnabled, setSpeakersEnabled] = useState(false);
+  const [targetVolume, setTargetVolume] = useState(100); // Target volume for ramp (0-100)
 
   const preToneAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -132,7 +133,7 @@ export default function LiveBroadcastPage() {
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, startVolumeRamp, stopVolumeRamp, controlSpeakers]);
 
   const loadData = async () => {
     try {
@@ -184,15 +185,14 @@ export default function LiveBroadcastPage() {
     }
   };
 
-  // Ramp volume from 0 to 100 over 10 seconds
-  const startVolumeRamp = () => {
+  // Ramp volume from 0 to target over 10 seconds
+  const startVolumeRamp = useCallback(() => {
     // Clear any existing ramp
     if (volumeRampIntervalRef.current) {
       clearInterval(volumeRampIntervalRef.current);
     }
 
     currentVolumeRef.current = 0;
-    const targetVolume = 100;
     const rampDuration = 10000; // 10 seconds
     const stepInterval = 500; // Update every 500ms
     const steps = rampDuration / stepInterval;
@@ -215,20 +215,20 @@ export default function LiveBroadcastPage() {
         setDevicesVolume(currentVolumeRef.current);
       }
     }, stepInterval);
-  };
+  }, [targetVolume, selectedDevices, devices]);
 
   // Stop volume ramp and reset to 0
-  const stopVolumeRamp = () => {
+  const stopVolumeRamp = useCallback(() => {
     if (volumeRampIntervalRef.current) {
       clearInterval(volumeRampIntervalRef.current);
       volumeRampIntervalRef.current = null;
     }
     currentVolumeRef.current = 0;
     setDevicesVolume(0);
-  };
+  }, [selectedDevices, devices]);
 
   // Enable/disable speakers for paging devices
-  const controlSpeakers = async (enable: boolean) => {
+  const controlSpeakers = useCallback(async (enable: boolean) => {
     setEnablingDisablingSpeakers(true);
 
     for (const deviceId of selectedDevices) {
@@ -240,7 +240,9 @@ export default function LiveBroadcastPage() {
         const linkedSpeakers = devices.filter(d => device.linkedSpeakerIds?.includes(d.id));
 
         try {
-          await fetch("/api/algo/speakers/mcast", {
+          console.log(`${enable ? 'Enabling' : 'Disabling'} speakers for ${device.name}:`, linkedSpeakers.map(s => s.ipAddress));
+
+          const response = await fetch("/api/algo/speakers/mcast", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -252,6 +254,13 @@ export default function LiveBroadcastPage() {
               enable,
             }),
           });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            console.error(`Failed to ${enable ? 'enable' : 'disable'} speakers for ${device.name}:`, errorData);
+          } else {
+            console.log(`Successfully ${enable ? 'enabled' : 'disabled'} speakers for ${device.name}`);
+          }
         } catch (error) {
           console.error(`Failed to control speakers for ${device.name}:`, error);
         }
@@ -259,7 +268,7 @@ export default function LiveBroadcastPage() {
     }
 
     setEnablingDisablingSpeakers(false);
-  };
+  }, [selectedDevices, devices]);
 
   const toggleDevice = (deviceId: string) => {
     setSelectedDevices((prev) =>
@@ -522,7 +531,7 @@ export default function LiveBroadcastPage() {
                   </p>
                 </div>
 
-                {/* Volume Control */}
+                {/* Input Gain Control */}
                 <div className="space-y-2">
                   <Label>Input Gain: {volume}%</Label>
                   <Slider
@@ -534,6 +543,21 @@ export default function LiveBroadcastPage() {
                   />
                   <p className="text-sm text-gray-500">
                     Adjust input volume (100% = normal, 200% = 2x boost)
+                  </p>
+                </div>
+
+                {/* Target Volume Control */}
+                <div className="space-y-2">
+                  <Label>Target Speaker Volume: {targetVolume}%</Label>
+                  <Slider
+                    min={0}
+                    max={100}
+                    value={targetVolume}
+                    onChange={(e) => setTargetVolume(parseInt(e.target.value))}
+                    showValue
+                  />
+                  <p className="text-sm text-gray-500">
+                    Maximum volume after 10-second ramp (lower for testing)
                   </p>
                 </div>
 
