@@ -87,7 +87,7 @@ export default function LiveBroadcastPage() {
     if (!isCapturing) return;
 
     const AUDIO_THRESHOLD = 5; // 5% minimum level to consider "audio detected"
-    const DISABLE_DELAY = 20000; // Disable speakers after 20 seconds of silence
+    const DISABLE_DELAY = 10000; // Disable speakers after 10 seconds of silence
 
     if (audioLevel > AUDIO_THRESHOLD) {
       // Audio detected
@@ -108,8 +108,14 @@ export default function LiveBroadcastPage() {
 
         // Enable speakers
         (async () => {
+          // IMPORTANT: Set volume to -42dB BEFORE turning speakers on
+          // This prevents a loud blast when speakers first enable
+          await setDevicesVolume(0);
+
+          // Now turn speakers on - they'll receive the -42dB signal
           await controlSpeakers(true);
-          // Start volume ramp after speakers are enabled
+
+          // Start volume ramp from -42dB to target
           startVolumeRamp();
           controllingSpakersRef.current = false;
         })();
@@ -189,7 +195,7 @@ export default function LiveBroadcastPage() {
     }
   };
 
-  // Ramp volume from 0 to target over 10 seconds
+  // Ramp volume from 0 to target over 15 seconds
   const startVolumeRamp = useCallback(() => {
     // Clear any existing ramp
     if (volumeRampIntervalRef.current) {
@@ -197,7 +203,7 @@ export default function LiveBroadcastPage() {
     }
 
     currentVolumeRef.current = 0;
-    const rampDuration = 10000; // 10 seconds
+    const rampDuration = 15000; // 15 seconds
     const stepInterval = 500; // Update every 500ms
     const steps = rampDuration / stepInterval;
     const volumeIncrement = targetVolume / steps;
@@ -572,7 +578,7 @@ export default function LiveBroadcastPage() {
                     showValue
                   />
                   <p className="text-sm text-gray-500">
-                    Maximum volume after 10-second ramp (lower for testing)
+                    Maximum volume after 15-second ramp (lower for testing)
                   </p>
                 </div>
 
