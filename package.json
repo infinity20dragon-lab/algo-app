@@ -81,7 +81,10 @@
         "zip"
       ],
       "category": "public.app-category.utilities",
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "AlgoSound needs microphone access to monitor audio levels and trigger fire station alerts."
+      }
     },
     "linux": {
       "target": [
