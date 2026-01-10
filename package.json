@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "electron:compile": "tsc -p electron/tsconfig.json",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron:compile && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron:compile && NODE_ENV=development electron .\"",
     "electron:build": "npm run build && npm run electron:compile && electron-builder",
     "electron:build:win": "npm run build && npm run electron:compile && electron-builder --win",
     "electron:start": "electron ."
