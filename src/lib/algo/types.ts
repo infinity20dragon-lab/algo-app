@@ -12,6 +12,7 @@ export interface AlgoDevice {
   zone: string;
   volume: number;
   isOnline: boolean;
+  authValid?: boolean; // true = auth works, false = wrong password/auth
   lastSeen: Date | null;
   createdAt: Date;
   updatedAt: Date;

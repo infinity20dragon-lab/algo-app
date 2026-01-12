@@ -134,6 +134,9 @@ export default function LiveBroadcastPage() {
               // Stop and disable
               (async () => {
                 stopVolumeRamp();
+                // Reset volume to 0 before turning off speakers
+                await setDevicesVolume(0);
+                // Now turn speakers off
                 await controlSpeakers(false);
                 controllingSpakersRef.current = false;
               })();
@@ -165,34 +168,49 @@ export default function LiveBroadcastPage() {
     setInputDevices(devices);
   };
 
-  // Set volume on all paging devices
+  // Set volume on all linked speakers (8180s)
   const setDevicesVolume = async (volumePercent: number) => {
+    // Get all linked speaker IDs from selected paging devices
+    const linkedSpeakerIds = new Set<string>();
+
     for (const deviceId of selectedDevices) {
       const device = devices.find(d => d.id === deviceId);
       if (!device) continue;
 
-      if (device.type === "8301") {
-        try {
-          // Convert 0-100 to -42dB to 0dB
-          const volumeDb = Math.round((volumePercent / 100) * 42 - 42);
-
-          await fetch("/api/algo/settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ipAddress: device.ipAddress,
-              password: device.apiPassword,
-              authMethod: device.authMethod,
-              settings: {
-                "audio.page.vol": `${volumeDb}dB`,
-              },
-            }),
-          });
-        } catch (error) {
-          console.error(`Failed to set volume for ${device.name}:`, error);
-        }
+      // If it's a paging device with linked speakers, add them
+      if (device.type === "8301" && device.linkedSpeakerIds) {
+        device.linkedSpeakerIds.forEach(id => linkedSpeakerIds.add(id));
       }
     }
+
+    // Convert 0-100% to 0-10 scale for Algo 8180 speakers
+    const volumeScale = Math.round((volumePercent / 100) * 10);
+
+    // Set volume on all linked speakers IN PARALLEL (for performance with many speakers)
+    const volumePromises = Array.from(linkedSpeakerIds).map(async (speakerId) => {
+      const speaker = devices.find(d => d.id === speakerId);
+      if (!speaker) return;
+
+      try {
+        await fetch("/api/algo/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ipAddress: speaker.ipAddress,
+            password: speaker.apiPassword,
+            authMethod: speaker.authMethod,
+            settings: {
+              "audio.page.vol": `${volumeScale}`,
+            },
+          }),
+        });
+      } catch (error) {
+        console.error(`Failed to set volume for ${speaker.name}:`, error);
+      }
+    });
+
+    // Wait for all volume updates to complete
+    await Promise.all(volumePromises);
   };
 
   // Ramp volume from 0 to target over 15 seconds
@@ -569,7 +587,7 @@ export default function LiveBroadcastPage() {
 
                 {/* Target Volume Control */}
                 <div className="space-y-2">
-                  <Label>Target Speaker Volume: {targetVolume}%</Label>
+                  <Label>Target Speaker Volume: {targetVolume}% (Level {Math.round((targetVolume / 100) * 10)}/10)</Label>
                   <Slider
                     min={0}
                     max={100}
@@ -578,7 +596,7 @@ export default function LiveBroadcastPage() {
                     showValue
                   />
                   <p className="text-sm text-gray-500">
-                    Maximum volume after 15-second ramp (lower for testing)
+                    Ramps from 0 to level {Math.round((targetVolume / 100) * 10)} over 15 seconds (lower for testing)
                   </p>
                 </div>
 

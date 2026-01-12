@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2, Link2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2, Link2, Search, Activity } from "lucide-react";
 import { getDevices, addDevice, updateDevice, deleteDevice } from "@/lib/firebase/firestore";
 import type { AlgoDevice, AlgoDeviceType, AlgoAuthMethod } from "@/lib/algo/types";
 import { formatDate, isValidIpAddress } from "@/lib/utils";
@@ -23,7 +23,7 @@ export default function DevicesPage() {
     name: "",
     type: "8180g2" as AlgoDeviceType,
     ipAddress: "",
-    authMethod: "standard" as AlgoAuthMethod,
+    authMethod: "basic" as AlgoAuthMethod,
     apiPassword: "algo",
     zone: "",
     volume: 50,
@@ -32,10 +32,31 @@ export default function DevicesPage() {
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [testingDevice, setTestingDevice] = useState<string | null>(null);
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([]);
+  const [selectedDiscoveredDevices, setSelectedDiscoveredDevices] = useState<Set<string>>(new Set());
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [lastStatusCheck, setLastStatusCheck] = useState<Date | null>(null);
 
   useEffect(() => {
     loadDevices();
   }, []);
+
+  // Periodic health check every 60 seconds
+  useEffect(() => {
+    if (devices.length === 0) return;
+
+    // Initial check
+    checkDeviceStatus();
+
+    // Set up interval
+    const interval = setInterval(() => {
+      checkDeviceStatus();
+    }, 60000); // 60 seconds
+
+    return () => clearInterval(interval);
+  }, [devices.length]);
 
   const loadDevices = async () => {
     try {
@@ -53,7 +74,7 @@ export default function DevicesPage() {
       name: "",
       type: "8180g2",
       ipAddress: "",
-      authMethod: "standard",
+      authMethod: "basic",
       apiPassword: "algo",
       zone: "",
       volume: 50,
@@ -152,6 +173,154 @@ export default function DevicesPage() {
     }
   };
 
+  const handleScanNetwork = async () => {
+    setShowScanModal(true);
+    setScanning(true);
+    setDiscoveredDevices([]);
+    setSelectedDiscoveredDevices(new Set());
+
+    try {
+      const response = await fetch("/api/algo/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}), // Use auto-detected network range
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to scan network");
+      }
+
+      const data = await response.json();
+
+      // Filter out devices that are already added
+      const existingIPs = new Set(devices.map(d => d.ipAddress));
+      const newDevices = data.devices.filter((d: any) => !existingIPs.has(d.ipAddress));
+
+      setDiscoveredDevices(newDevices);
+    } catch (error) {
+      console.error("Network scan error:", error);
+      alert("Failed to scan network. Please try again.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleToggleDiscoveredDevice = (ipAddress: string) => {
+    const newSelected = new Set(selectedDiscoveredDevices);
+    if (newSelected.has(ipAddress)) {
+      newSelected.delete(ipAddress);
+    } else {
+      newSelected.add(ipAddress);
+    }
+    setSelectedDiscoveredDevices(newSelected);
+  };
+
+  const handleAddDiscoveredDevices = async () => {
+    if (selectedDiscoveredDevices.size === 0) {
+      alert("Please select at least one device to add");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const devicesToAdd = discoveredDevices.filter(d =>
+        selectedDiscoveredDevices.has(d.ipAddress)
+      );
+
+      for (const discovered of devicesToAdd) {
+        // Generate unique name: use detected name + last octet of IP
+        // Example: "Algo 8180 IP Speaker - .101" or "8180 Speaker (.101)"
+        const ipLastOctet = discovered.ipAddress.split('.').pop();
+        let deviceName = discovered.name || discovered.model;
+
+        // Make name unique by appending IP last octet
+        deviceName = `${deviceName} (.${ipLastOctet})`;
+
+        await addDevice({
+          name: deviceName,
+          type: discovered.type === "8301" ? "8301" : "8180g2",
+          ipAddress: discovered.ipAddress,
+          authMethod: "basic",
+          apiPassword: "algo",
+          zone: "",
+          volume: 50,
+          linkedSpeakerIds: [],
+          isOnline: true,
+          lastSeen: new Date().toISOString(),
+        });
+      }
+
+      await loadDevices();
+      setShowScanModal(false);
+      setDiscoveredDevices([]);
+      setSelectedDiscoveredDevices(new Set());
+    } catch (error) {
+      console.error("Failed to add devices:", error);
+      alert("Failed to add some devices. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const checkDeviceStatus = async () => {
+    if (devices.length === 0) return;
+
+    setCheckingStatus(true);
+
+    try {
+      const response = await fetch("/api/algo/health", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          devices: devices.map(d => ({
+            id: d.id,
+            ipAddress: d.ipAddress,
+            apiPassword: d.apiPassword,
+            authMethod: d.authMethod,
+          })),
+          timeout: 3000,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to check device status");
+      }
+
+      const data = await response.json();
+
+      // Update devices with new status
+      const updatedDevices = devices.map(device => {
+        const healthInfo = data.devices.find((h: any) => h.id === device.id);
+        if (healthInfo) {
+          return {
+            ...device,
+            isOnline: healthInfo.isOnline,
+            authValid: healthInfo.authValid,
+            lastSeen: healthInfo.isOnline ? healthInfo.lastChecked : device.lastSeen,
+          };
+        }
+        return device;
+      });
+
+      setDevices(updatedDevices);
+      setLastStatusCheck(new Date());
+
+      // Update Firestore with new status (in background, don't await)
+      updatedDevices.forEach(device => {
+        updateDevice(device.id, {
+          isOnline: device.isOnline,
+          authValid: device.authValid,
+          lastSeen: device.lastSeen,
+        }).catch(err => console.error(`Failed to update device ${device.id}:`, err));
+      });
+
+    } catch (error) {
+      console.error("Failed to check device status:", error);
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -159,12 +328,31 @@ export default function DevicesPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Devices</h1>
-            <p className="text-gray-500">Manage your Algo IP endpoints</p>
+            <div className="flex items-center gap-3">
+              <p className="text-gray-500">Manage your Algo IP endpoints</p>
+              {lastStatusCheck && (
+                <span className="text-xs text-gray-400">
+                  Last checked: {lastStatusCheck.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={checkDeviceStatus}
+              isLoading={checkingStatus}
+            >
+              <Activity className="mr-2 h-4 w-4" />
+              Check Status
+            </Button>
             <Button variant="outline" onClick={loadDevices}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
+            </Button>
+            <Button variant="outline" onClick={handleScanNetwork}>
+              <Search className="mr-2 h-4 w-4" />
+              Scan Network
             </Button>
             <Button onClick={openAddForm}>
               <Plus className="mr-2 h-4 w-4" />
@@ -375,6 +563,160 @@ export default function DevicesPage() {
           </div>
         )}
 
+        {/* Network Scan Modal */}
+        {showScanModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <Card className="w-full max-w-2xl max-h-[80vh] flex flex-col">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Network Scanner</CardTitle>
+                  <button
+                    onClick={() => setShowScanModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                    disabled={scanning}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <CardDescription>
+                  Automatically discover Algo devices on your network
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-hidden flex flex-col">
+                {scanning ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mb-4" />
+                    <p className="text-gray-600">Scanning network for Algo devices...</p>
+                    <p className="text-sm text-gray-400 mt-2">This may take 10-30 seconds</p>
+                  </div>
+                ) : discoveredDevices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <div className="mb-4 rounded-full bg-gray-100 p-4">
+                      <Search className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <h3 className="mb-2 text-lg font-medium text-gray-900">
+                      No new devices found
+                    </h3>
+                    <p className="text-center text-gray-500 mb-4">
+                      All Algo devices on your network are already added, or no devices were detected.
+                    </p>
+                    <Button onClick={handleScanNetwork} variant="outline">
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Scan Again
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-4">
+                      <p className="text-sm text-gray-600">
+                        Found {discoveredDevices.length} device{discoveredDevices.length !== 1 ? 's' : ''}.
+                        Select the devices you want to add:
+                      </p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto border rounded-md divide-y">
+                      {discoveredDevices.map((device) => (
+                        <label
+                          key={device.ipAddress}
+                          className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDiscoveredDevices.has(device.ipAddress)}
+                            onChange={() => handleToggleDiscoveredDevice(device.ipAddress)}
+                            className="mt-1 rounded border-gray-300"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-gray-900">
+                                {device.name || device.model}
+                              </span>
+                              <Badge variant="outline">{device.type.toUpperCase()}</Badge>
+                            </div>
+                            <p className="text-sm text-gray-500">{device.ipAddress}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t">
+                      <Button variant="outline" onClick={handleScanNetwork} disabled={saving}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Scan Again
+                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const allIPs = new Set(discoveredDevices.map(d => d.ipAddress));
+                            setSelectedDiscoveredDevices(
+                              selectedDiscoveredDevices.size === discoveredDevices.length
+                                ? new Set()
+                                : allIPs
+                            );
+                          }}
+                          disabled={saving}
+                        >
+                          {selectedDiscoveredDevices.size === discoveredDevices.length ? 'Deselect All' : 'Select All'}
+                        </Button>
+                        <Button
+                          onClick={handleAddDiscoveredDevices}
+                          isLoading={saving}
+                          disabled={selectedDiscoveredDevices.size === 0}
+                        >
+                          Add {selectedDiscoveredDevices.size > 0 ? `(${selectedDiscoveredDevices.size})` : ''} Device{selectedDiscoveredDevices.size !== 1 ? 's' : ''}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Status Summary */}
+        {!loading && devices.length > 0 && (
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {devices.filter(d => d.isOnline).length} Online
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-red-500"></div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {devices.filter(d => !d.isOnline).length} Offline
+                    </span>
+                  </div>
+                  {devices.filter(d => d.isOnline && d.authValid === false).length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
+                      <span className="text-sm font-medium text-yellow-700">
+                        {devices.filter(d => d.isOnline && d.authValid === false).length} Auth Issue{devices.filter(d => d.isOnline && d.authValid === false).length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-gray-400" />
+                    <span className="text-sm text-gray-500">
+                      {devices.length} Total Device{devices.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+                {checkingStatus && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
+                    <span>Checking status...</span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Devices List */}
         {loading ? (
           <div className="flex justify-center py-12">
@@ -404,14 +746,35 @@ export default function DevicesPage() {
               <Card key={device.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-lg">{device.name}</CardTitle>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CardTitle className="text-lg">{device.name}</CardTitle>
+                        <div className={`h-2 w-2 rounded-full ${device.isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      </div>
                       <CardDescription>{device.ipAddress}</CardDescription>
                     </div>
-                    <Badge variant={device.isOnline ? "success" : "secondary"}>
-                      {device.isOnline ? "Online" : "Offline"}
-                    </Badge>
+                    <div className="flex flex-col gap-1">
+                      <Badge
+                        variant={device.isOnline ? "success" : "secondary"}
+                        className={device.isOnline ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}
+                      >
+                        {device.isOnline ? "Online" : "Offline"}
+                      </Badge>
+                      {device.isOnline && device.authValid === false && (
+                        <Badge
+                          variant="warning"
+                          className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs"
+                        >
+                          Auth Error
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+                  {device.isOnline && device.authValid === false && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+                      <strong>Authentication Failed:</strong> Wrong password or auth method. Please check device settings.
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap gap-2 text-sm">
