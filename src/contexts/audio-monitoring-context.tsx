@@ -173,7 +173,14 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
     }
 
+    // Convert 0-100% to 0-10 scale, then to dB
+    // Algo expects: 0=-30dB, 1=-27dB, 2=-24dB, ... 10=0dB
+    // Formula: dB = (level - 10) * 3
     const volumeScale = Math.round((volumePercent / 100) * 10);
+    const volumeDb = (volumeScale - 10) * 3;
+    const volumeDbString = volumeDb === 0 ? "0dB" : `${volumeDb}dB`;
+
+    console.log(`[AudioMonitoring] Setting volume: ${volumePercent}% → level ${volumeScale} → ${volumeDbString}`);
 
     const volumePromises = Array.from(linkedSpeakerIds).map(async (speakerId) => {
       const speaker = devices.find(d => d.id === speakerId);
@@ -188,7 +195,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
             password: speaker.apiPassword,
             authMethod: speaker.authMethod,
             settings: {
-              "audio.page.vol": `${volumeScale}`,
+              "audio.page.vol": volumeDbString,
             },
           }),
         });
