@@ -11,6 +11,7 @@ interface AudioMonitoringContextType {
   selectedInputDevice: string;
   volume: number;
   targetVolume: number;
+  audioThreshold: number;
 
   // Speaker state
   audioDetected: boolean;
@@ -26,6 +27,7 @@ interface AudioMonitoringContextType {
   setInputDevice: (deviceId: string) => void;
   setVolume: (volume: number) => void;
   setTargetVolume: (volume: number) => void;
+  setAudioThreshold: (threshold: number) => void;
 
   // For controlling speakers
   devices: AlgoDevice[];
@@ -41,12 +43,14 @@ const STORAGE_KEYS = {
   SELECTED_INPUT: 'algo_live_selected_input',
   TARGET_VOLUME: 'algo_live_target_volume',
   INPUT_GAIN: 'algo_live_input_gain',
+  AUDIO_THRESHOLD: 'algo_live_audio_threshold',
 };
 
 export function AudioMonitoringProvider({ children }: { children: React.ReactNode }) {
   const [selectedInputDevice, setSelectedInputDeviceState] = useState<string>("");
   const [volume, setVolumeState] = useState(50);
   const [targetVolume, setTargetVolumeState] = useState(100);
+  const [audioThreshold, setAudioThresholdState] = useState(5); // 5% default
   const [selectedDevices, setSelectedDevicesState] = useState<string[]>([]);
   const [devices, setDevices] = useState<AlgoDevice[]>([]);
   const [audioDetected, setAudioDetected] = useState(false);
@@ -84,6 +88,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       const savedInput = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT);
       const savedTargetVolume = localStorage.getItem(STORAGE_KEYS.TARGET_VOLUME);
       const savedInputGain = localStorage.getItem(STORAGE_KEYS.INPUT_GAIN);
+      const savedAudioThreshold = localStorage.getItem(STORAGE_KEYS.AUDIO_THRESHOLD);
       const wasMonitoring = localStorage.getItem(STORAGE_KEYS.IS_MONITORING) === 'true';
 
       console.log('[AudioMonitoring] Saved state:', {
@@ -91,6 +96,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         input: savedInput,
         targetVolume: savedTargetVolume,
         inputGain: savedInputGain,
+        audioThreshold: savedAudioThreshold,
         wasMonitoring,
       });
 
@@ -108,6 +114,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
       if (savedInputGain) {
         setVolumeState(parseInt(savedInputGain));
+      }
+      if (savedAudioThreshold) {
+        setAudioThresholdState(parseInt(savedAudioThreshold));
       }
 
       // Mark as restored
@@ -160,6 +169,26 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     localStorage.setItem(STORAGE_KEYS.IS_MONITORING, isCapturing.toString());
   }, [isCapturing]);
 
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving audio threshold:', audioThreshold);
+    localStorage.setItem(STORAGE_KEYS.AUDIO_THRESHOLD, audioThreshold.toString());
+  }, [audioThreshold]);
+
+  // Watch for target volume changes - restart ramp if speakers are enabled
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+
+    // Only restart ramp if speakers are currently enabled
+    if (speakersEnabled && !controllingSpakersRef.current) {
+      const currentVolume = currentVolumeRef.current;
+      console.log(`[AudioMonitoring] Target volume changed, restarting ramp from ${currentVolume}% to ${targetVolume}%`);
+
+      // Restart ramp from current volume to new target
+      startVolumeRamp(currentVolume);
+    }
+  }, [targetVolume, speakersEnabled, startVolumeRamp]);
+
   // Set volume on all linked speakers (8180s)
   const setDevicesVolume = useCallback(async (volumePercent: number) => {
     const linkedSpeakerIds = new Set<string>();
@@ -207,30 +236,45 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     await Promise.all(volumePromises);
   }, [selectedDevices, devices]);
 
-  // Ramp volume from 0 to target over 15 seconds
-  const startVolumeRamp = useCallback(() => {
+  // Ramp volume from startFrom to target over 15 seconds
+  const startVolumeRamp = useCallback((startFrom: number = 0) => {
     if (volumeRampIntervalRef.current) {
       clearInterval(volumeRampIntervalRef.current);
     }
 
-    currentVolumeRef.current = 0;
+    currentVolumeRef.current = startFrom;
     const rampDuration = 15000;
     const stepInterval = 500;
     const steps = rampDuration / stepInterval;
-    const volumeIncrement = targetVolume / steps;
+    const volumeDiff = targetVolume - startFrom;
+    const volumeIncrement = volumeDiff / steps;
 
-    setDevicesVolume(0);
+    console.log(`[AudioMonitoring] Starting volume ramp: ${startFrom}% → ${targetVolume}% over ${rampDuration/1000}s`);
+
+    // Set initial volume
+    setDevicesVolume(startFrom);
 
     volumeRampIntervalRef.current = setInterval(() => {
       currentVolumeRef.current += volumeIncrement;
 
-      if (currentVolumeRef.current >= targetVolume) {
+      if (volumeIncrement > 0 && currentVolumeRef.current >= targetVolume) {
+        // Ramping up
         currentVolumeRef.current = targetVolume;
         setDevicesVolume(targetVolume);
         if (volumeRampIntervalRef.current) {
           clearInterval(volumeRampIntervalRef.current);
           volumeRampIntervalRef.current = null;
         }
+        console.log(`[AudioMonitoring] Volume ramp complete at ${targetVolume}%`);
+      } else if (volumeIncrement < 0 && currentVolumeRef.current <= targetVolume) {
+        // Ramping down
+        currentVolumeRef.current = targetVolume;
+        setDevicesVolume(targetVolume);
+        if (volumeRampIntervalRef.current) {
+          clearInterval(volumeRampIntervalRef.current);
+          volumeRampIntervalRef.current = null;
+        }
+        console.log(`[AudioMonitoring] Volume ramp complete at ${targetVolume}%`);
       } else {
         setDevicesVolume(currentVolumeRef.current);
       }
@@ -285,10 +329,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!isCapturing) return;
 
-    const AUDIO_THRESHOLD = 5;
-    const DISABLE_DELAY = 10000;
+    const DISABLE_DELAY = 10000; // 10 seconds of silence before disabling
 
-    if (audioLevel > AUDIO_THRESHOLD) {
+    if (audioLevel > audioThreshold) {
       if (!audioDetected) {
         setAudioDetected(true);
       }
@@ -330,7 +373,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp]);
 
   const startMonitoring = useCallback((inputDevice?: string) => {
     console.log('[AudioMonitoring] Starting monitoring', inputDevice);
@@ -366,6 +409,10 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     setTargetVolumeState(vol);
   }, []);
 
+  const setAudioThreshold = useCallback((threshold: number) => {
+    setAudioThresholdState(threshold);
+  }, []);
+
   return (
     <AudioMonitoringContext.Provider
       value={{
@@ -374,6 +421,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         selectedInputDevice,
         volume,
         targetVolume,
+        audioThreshold,
         audioDetected,
         speakersEnabled,
         selectedDevices,
@@ -383,6 +431,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setInputDevice,
         setVolume,
         setTargetVolume,
+        setAudioThreshold,
         devices,
         setDevices,
       }}

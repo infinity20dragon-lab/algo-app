@@ -38,6 +38,7 @@ export default function LiveBroadcastPage() {
     selectedInputDevice,
     volume,
     targetVolume,
+    audioThreshold,
     audioDetected,
     speakersEnabled,
     selectedDevices,
@@ -47,6 +48,7 @@ export default function LiveBroadcastPage() {
     setInputDevice,
     setVolume,
     setTargetVolume,
+    setAudioThreshold,
     devices: contextDevices,
     setDevices: setContextDevices,
   } = useAudioMonitoring();
@@ -358,6 +360,21 @@ export default function LiveBroadcastPage() {
                   />
                   <p className="text-sm text-gray-500">
                     Ramps from 0 to level {Math.round((targetVolume / 100) * 10)} over 15 seconds
+                  </p>
+                </div>
+
+                {/* Audio Threshold Control */}
+                <div className="space-y-2">
+                  <Label>Audio Threshold: {audioThreshold}%</Label>
+                  <Slider
+                    min={0}
+                    max={50}
+                    value={audioThreshold}
+                    onChange={(e) => setAudioThreshold(parseInt(e.target.value))}
+                    showValue
+                  />
+                  <p className="text-sm text-gray-500">
+                    Minimum audio level to trigger speaker activation (default: 5%)
                   </p>
                 </div>
 
