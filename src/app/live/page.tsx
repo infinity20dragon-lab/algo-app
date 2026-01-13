@@ -459,11 +459,13 @@ export default function LiveBroadcastPage() {
   }, [selectedDevices, devices]);
 
   const toggleDevice = (deviceId: string) => {
-    setSelectedDevices((prev) =>
-      prev.includes(deviceId)
+    setSelectedDevices((prev) => {
+      const newDevices = prev.includes(deviceId)
         ? prev.filter((id) => id !== deviceId)
-        : [...prev, deviceId]
-    );
+        : [...prev, deviceId];
+      console.log('[Live] Device selection changed:', newDevices);
+      return newDevices;
+    });
   };
 
   const selectAllDevices = () => {
@@ -1027,13 +1029,30 @@ export default function LiveBroadcastPage() {
                 </CardHeader>
                 <CardContent className="p-4">
                   <div className="space-y-1 text-xs font-mono">
-                    <div className="text-gray-600">Selected Devices:</div>
+                    <div className="text-gray-600">Selected Devices (State):</div>
                     <div className="text-gray-900 break-all">
                       {selectedDevices.length > 0 ? selectedDevices.join(', ') : 'None'}
+                    </div>
+                    <div className="text-gray-600 mt-2">Selected Devices (Storage):</div>
+                    <div className="text-gray-900 break-all">
+                      {(() => {
+                        try {
+                          const stored = localStorage.getItem(STORAGE_KEYS.SELECTED_DEVICES);
+                          if (!stored) return 'None';
+                          const parsed = JSON.parse(stored);
+                          return parsed.length > 0 ? parsed.join(', ') : 'None';
+                        } catch {
+                          return 'Error reading storage';
+                        }
+                      })()}
                     </div>
                     <div className="text-gray-600 mt-2">Input Device:</div>
                     <div className="text-gray-900 break-all">
                       {selectedInputDevice || 'Default'}
+                    </div>
+                    <div className="text-gray-600 mt-2">Monitoring:</div>
+                    <div className="text-gray-900">
+                      {isCapturing ? 'Active' : 'Stopped'} (Storage: {localStorage.getItem(STORAGE_KEYS.IS_MONITORING) || 'not set'})
                     </div>
                     <div className="text-gray-600 mt-2">Restored:</div>
                     <div className="text-gray-900">
@@ -1055,6 +1074,17 @@ export default function LiveBroadcastPage() {
                       }}
                     >
                       Log Storage
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 w-full"
+                      onClick={() => {
+                        localStorage.clear();
+                        alert('localStorage cleared! Refresh to start fresh.');
+                      }}
+                    >
+                      Clear Storage
                     </Button>
                   </div>
                 </CardContent>
