@@ -3,6 +3,7 @@
 import { useAuth } from "@/contexts/auth-context";
 import { LoginForm } from "@/components/auth/login-form";
 import { Sidebar } from "@/components/layout/sidebar";
+import { AudioMonitoringIndicator } from "@/components/audio-monitoring-indicator";
 import { type ReactNode } from "react";
 
 interface AppLayoutProps {
@@ -30,6 +31,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <main className="lg:pl-64">
         <div className="p-4 pt-20 lg:p-8 lg:pt-8">{children}</div>
       </main>
+      <AudioMonitoringIndicator />
     </div>
   );
 }
