@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { AudioLogViewer } from "@/components/audio-log-viewer";
 import {
   Mic,
   MicOff,
@@ -814,6 +815,9 @@ export default function LiveBroadcastPage() {
             )}
           </div>
         </div>
+
+        {/* Activity Log - Full Width */}
+        <AudioLogViewer />
       </div>
     </AppLayout>
   );

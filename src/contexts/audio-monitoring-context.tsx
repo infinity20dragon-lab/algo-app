@@ -4,6 +4,16 @@ import { createContext, useContext, useState, useRef, useCallback, useEffect } f
 import { useAudioCapture } from "@/hooks/useAudioCapture";
 import type { AlgoDevice } from "@/lib/algo/types";
 
+export interface AudioLogEntry {
+  timestamp: string;
+  type: "audio_detected" | "audio_silent" | "speakers_enabled" | "speakers_disabled" | "volume_change";
+  audioLevel?: number;
+  audioThreshold?: number;
+  speakersEnabled?: boolean;
+  volume?: number;
+  message: string;
+}
+
 interface AudioMonitoringContextType {
   // Audio capture state
   isCapturing: boolean;
@@ -46,6 +56,11 @@ interface AudioMonitoringContextType {
   // For controlling speakers
   devices: AlgoDevice[];
   setDevices: (devices: AlgoDevice[]) => void;
+
+  // Logging
+  logs: AudioLogEntry[];
+  clearLogs: () => void;
+  exportLogs: () => string;
 }
 
 const AudioMonitoringContext = createContext<AudioMonitoringContextType | null>(null);
@@ -76,6 +91,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const [audioDetected, setAudioDetected] = useState(false);
   const [speakersEnabled, setSpeakersEnabled] = useState(false);
 
+  // Logging
+  const [logs, setLogs] = useState<AudioLogEntry[]>([]);
+
   // Ramp settings
   const [rampEnabled, setRampEnabledState] = useState(true);
   const [rampDuration, setRampDurationState] = useState(15); // 15 seconds default
@@ -98,6 +116,25 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     stopCapture,
     setVolume: setGainVolume,
   } = useAudioCapture();
+
+  // Helper to add log entry
+  const addLog = useCallback((entry: Omit<AudioLogEntry, "timestamp">) => {
+    const logEntry: AudioLogEntry = {
+      ...entry,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log(`[AudioLog] ${logEntry.message}`, logEntry);
+
+    setLogs(prev => {
+      const newLogs = [...prev, logEntry];
+      // Keep only last 500 entries to prevent memory issues
+      if (newLogs.length > 500) {
+        return newLogs.slice(-500);
+      }
+      return newLogs;
+    });
+  }, []);
 
   // Update gain when volume changes
   useEffect(() => {
@@ -469,6 +506,12 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     if (audioLevel > audioThreshold) {
       if (!audioDetected) {
         setAudioDetected(true);
+        addLog({
+          type: "audio_detected",
+          audioLevel,
+          audioThreshold,
+          message: `Audio detected: ${audioLevel.toFixed(1)}% (threshold: ${audioThreshold}%)`,
+        });
       }
 
       if (audioDetectionTimeoutRef.current) {
@@ -480,6 +523,14 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         controllingSpakersRef.current = true;
         setSpeakersEnabled(true);
 
+        addLog({
+          type: "speakers_enabled",
+          audioLevel,
+          speakersEnabled: true,
+          volume: targetVolume,
+          message: `Speakers enabled - ramping to ${targetVolume}%`,
+        });
+
         (async () => {
           await setDevicesVolume(0);
           await controlSpeakers(true);
@@ -490,11 +541,24 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     } else {
       if (audioDetected && speakersEnabled) {
         if (!audioDetectionTimeoutRef.current) {
+          addLog({
+            type: "audio_silent",
+            audioLevel,
+            audioThreshold,
+            message: `Audio below threshold: ${audioLevel.toFixed(1)}% - starting ${DISABLE_DELAY/1000}s countdown`,
+          });
+
           audioDetectionTimeoutRef.current = setTimeout(() => {
             if (!controllingSpakersRef.current) {
               controllingSpakersRef.current = true;
               setSpeakersEnabled(false);
               setAudioDetected(false);
+
+              addLog({
+                type: "speakers_disabled",
+                speakersEnabled: false,
+                message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence`,
+              });
 
               (async () => {
                 stopVolumeRamp();
@@ -508,15 +572,24 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog]);
 
   const startMonitoring = useCallback((inputDevice?: string) => {
     console.log('[AudioMonitoring] Starting monitoring', inputDevice);
+    addLog({
+      type: "audio_detected",
+      audioThreshold,
+      message: `Monitoring started with threshold: ${audioThreshold}%`,
+    });
     startCapture(inputDevice);
-  }, [startCapture]);
+  }, [startCapture, audioThreshold, addLog]);
 
   const stopMonitoring = useCallback(async () => {
     console.log('[AudioMonitoring] Stopping monitoring');
+    addLog({
+      type: "speakers_disabled",
+      message: 'Monitoring stopped',
+    });
     stopCapture();
     stopVolumeRamp();
 
@@ -526,7 +599,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       await controlSpeakers(false);
       controllingSpakersRef.current = false;
     }
-  }, [stopCapture, stopVolumeRamp, speakersEnabled, controlSpeakers]);
+  }, [stopCapture, stopVolumeRamp, speakersEnabled, controlSpeakers, addLog]);
 
   const setVolume = useCallback((vol: number) => {
     setVolumeState(vol);
@@ -572,6 +645,21 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     setNightRampDurationState(duration);
   }, []);
 
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+    console.log('[AudioLog] Logs cleared');
+  }, []);
+
+  const exportLogs = useCallback(() => {
+    const header = "Timestamp,Type,Audio Level,Threshold,Speakers,Volume,Message\n";
+    const rows = logs.map(log => {
+      const timestamp = new Date(log.timestamp).toLocaleString();
+      return `"${timestamp}","${log.type}","${log.audioLevel ?? ''}","${log.audioThreshold ?? ''}","${log.speakersEnabled ?? ''}","${log.volume ?? ''}","${log.message}"`;
+    }).join("\n");
+
+    return header + rows;
+  }, [logs]);
+
   return (
     <AudioMonitoringContext.Provider
       value={{
@@ -605,6 +693,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setAudioThreshold,
         devices,
         setDevices,
+        logs,
+        clearLogs,
+        exportLogs,
       }}
     >
       {children}
