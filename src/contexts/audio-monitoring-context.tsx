@@ -187,7 +187,8 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       // Restart ramp from current volume to new target
       startVolumeRamp(currentVolume);
     }
-  }, [targetVolume, speakersEnabled, startVolumeRamp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetVolume, speakersEnabled]);
 
   // Set volume on all linked speakers (8180s)
   const setDevicesVolume = useCallback(async (volumePercent: number) => {
