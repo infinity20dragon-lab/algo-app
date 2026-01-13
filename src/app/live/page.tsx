@@ -48,6 +48,7 @@ export default function LiveBroadcastPage() {
   const [audioDetected, setAudioDetected] = useState(false);
   const [speakersEnabled, setSpeakersEnabled] = useState(false);
   const [targetVolume, setTargetVolume] = useState(100); // Target volume for ramp (0-100)
+  const [isResuming, setIsResuming] = useState(false); // True when auto-resuming monitoring
 
   const preToneAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -55,6 +56,7 @@ export default function LiveBroadcastPage() {
   const volumeRampIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentVolumeRef = useRef<number>(0);
   const hasRestoredStateRef = useRef<boolean>(false);
+  const isResumingRef = useRef<boolean>(false); // Prevent duplicate auto-resumes
   const cleanupDataRef = useRef<{ devices: AlgoDevice[], selectedDevices: string[], speakersEnabled: boolean }>({
     devices: [],
     selectedDevices: [],
@@ -139,11 +141,14 @@ export default function LiveBroadcastPage() {
         }, 100);
 
         // Auto-start monitoring if it was active before
-        if (wasMonitoring) {
+        if (wasMonitoring && !isResumingRef.current) {
           console.log('[Live] Auto-resuming monitoring from previous session');
+          isResumingRef.current = true;
+          setIsResuming(true);
           setTimeout(() => {
             startCapture(savedInput || undefined);
-          }, 1500); // Longer delay to ensure everything is ready
+            setIsResuming(false);
+          }, 500); // Short delay to ensure audio devices are ready
         }
       } catch (error) {
         console.error('[Live] Failed to initialize app:', error);
@@ -223,6 +228,9 @@ export default function LiveBroadcastPage() {
         clearTimeout(audioDetectionTimeoutRef.current);
         audioDetectionTimeoutRef.current = null;
       }
+
+      // Reset resuming flag so component can auto-resume when remounting
+      isResumingRef.current = false;
 
       // NOTE: We deliberately DON'T call stopCapture() or disable speakers here
       // because we want monitoring to continue even when navigating to other pages.
@@ -754,9 +762,19 @@ export default function LiveBroadcastPage() {
                 {/* Capture Controls */}
                 <div className="space-y-3">
                   <div className="flex gap-3">
-                    {!isCapturing ? (
+                    {isResuming ? (
+                      <Button disabled>
+                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Resuming...
+                      </Button>
+                    ) : !isCapturing ? (
                       <Button
-                        onClick={() => startCapture(selectedInputDevice || undefined)}
+                        onClick={() => {
+                          console.log('[Live] User clicked Start Monitoring');
+                          // Set monitoring flag immediately
+                          localStorage.setItem(STORAGE_KEYS.IS_MONITORING, 'true');
+                          startCapture(selectedInputDevice || undefined);
+                        }}
                       >
                         <Mic className="mr-2 h-4 w-4" />
                         Start Monitoring
@@ -766,6 +784,10 @@ export default function LiveBroadcastPage() {
                         variant="destructive"
                         onClick={() => {
                           console.log('[Live] User clicked Stop Monitoring - stopping capture and disabling speakers');
+
+                          // Clear monitoring flag immediately (don't wait for effect)
+                          localStorage.setItem(STORAGE_KEYS.IS_MONITORING, 'false');
+
                           stopCapture();
                           // Stop volume ramp
                           stopVolumeRamp();
@@ -789,8 +811,18 @@ export default function LiveBroadcastPage() {
                     )}
                   </div>
 
+                  {/* Resuming Status */}
+                  {isResuming && (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                        <span className="font-medium text-blue-700">Resuming monitoring...</span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Audio Detection Status */}
-                  {isCapturing && (
+                  {isCapturing && !isResuming && (
                     <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="text-gray-600">Audio Activity:</span>
@@ -1003,8 +1035,8 @@ export default function LiveBroadcastPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">Capture</span>
-                    <Badge variant={isCapturing ? "success" : "secondary"}>
-                      {isCapturing ? "Active" : "Inactive"}
+                    <Badge variant={isResuming ? "default" : isCapturing ? "success" : "secondary"}>
+                      {isResuming ? "Resuming..." : isCapturing ? "Active" : "Inactive"}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
