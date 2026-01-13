@@ -30,6 +30,7 @@ const Switch = forwardRef<HTMLInputElement, SwitchProps>(
         <input
           type="checkbox"
           checked={checked}
+          onChange={() => {}} // Controlled by button click handler
           ref={ref}
           className="sr-only"
           {...props}
