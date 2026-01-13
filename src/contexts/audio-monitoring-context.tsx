@@ -34,12 +34,14 @@ interface AudioMonitoringContextType {
   dayStartHour: number;
   dayEndHour: number;
   nightRampDuration: number;
+  sustainDuration: number;
   setRampEnabled: (enabled: boolean) => void;
   setRampDuration: (duration: number) => void;
   setDayNightMode: (enabled: boolean) => void;
   setDayStartHour: (hour: number) => void;
   setDayEndHour: (hour: number) => void;
   setNightRampDuration: (duration: number) => void;
+  setSustainDuration: (duration: number) => void;
 
   // Device selection
   selectedDevices: string[];
@@ -79,6 +81,7 @@ const STORAGE_KEYS = {
   DAY_START_HOUR: 'algo_live_day_start_hour',
   DAY_END_HOUR: 'algo_live_day_end_hour',
   NIGHT_RAMP_DURATION: 'algo_live_night_ramp_duration',
+  SUSTAIN_DURATION: 'algo_live_sustain_duration',
 };
 
 export function AudioMonitoringProvider({ children }: { children: React.ReactNode }) {
@@ -101,6 +104,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const [dayStartHour, setDayStartHourState] = useState(6); // 6 AM
   const [dayEndHour, setDayEndHourState] = useState(18); // 6 PM
   const [nightRampDuration, setNightRampDurationState] = useState(10); // 10 seconds for night
+  const [sustainDuration, setSustainDurationState] = useState(1000); // 1 second default (in ms)
 
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const controllingSpakersRef = useRef<boolean>(false);
@@ -108,6 +112,10 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const currentVolumeRef = useRef<number>(0);
   const hasRestoredStateRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
+
+  // Sustained audio tracking
+  const sustainedAudioStartRef = useRef<number | null>(null);
+  const sustainCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     isCapturing,
@@ -160,6 +168,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       const savedDayStartHour = localStorage.getItem(STORAGE_KEYS.DAY_START_HOUR);
       const savedDayEndHour = localStorage.getItem(STORAGE_KEYS.DAY_END_HOUR);
       const savedNightRampDuration = localStorage.getItem(STORAGE_KEYS.NIGHT_RAMP_DURATION);
+      const savedSustainDuration = localStorage.getItem(STORAGE_KEYS.SUSTAIN_DURATION);
       const wasMonitoring = localStorage.getItem(STORAGE_KEYS.IS_MONITORING) === 'true';
 
       console.log('[AudioMonitoring] Saved state:', {
@@ -212,6 +221,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
       if (savedNightRampDuration) {
         setNightRampDurationState(parseInt(savedNightRampDuration));
+      }
+      if (savedSustainDuration) {
+        setSustainDurationState(parseInt(savedSustainDuration));
       }
 
       // Mark as restored
@@ -305,6 +317,12 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     console.log('[AudioMonitoring] Saving night ramp duration:', nightRampDuration);
     localStorage.setItem(STORAGE_KEYS.NIGHT_RAMP_DURATION, nightRampDuration.toString());
   }, [nightRampDuration]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving sustain duration:', sustainDuration);
+    localStorage.setItem(STORAGE_KEYS.SUSTAIN_DURATION, sustainDuration.toString());
+  }, [sustainDuration]);
 
   // Watch for target volume changes - restart ramp if speakers are enabled
   useEffect(() => {
@@ -497,48 +515,78 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     }
   }, [selectedDevices, devices]);
 
-  // Audio activity detection
+  // Audio activity detection with sustained audio requirement
   useEffect(() => {
-    if (!isCapturing) return;
+    if (!isCapturing) {
+      // Clean up sustained audio tracking when not capturing
+      if (sustainedAudioStartRef.current) {
+        sustainedAudioStartRef.current = null;
+      }
+      return;
+    }
 
     const DISABLE_DELAY = 10000; // 10 seconds of silence before disabling
 
     if (audioLevel > audioThreshold) {
-      if (!audioDetected) {
-        setAudioDetected(true);
-        addLog({
-          type: "audio_detected",
-          audioLevel,
-          audioThreshold,
-          message: `Audio detected: ${audioLevel.toFixed(1)}% (threshold: ${audioThreshold}%)`,
-        });
+      // Audio is above threshold
+
+      // Start tracking sustained audio if not already tracking
+      if (!sustainedAudioStartRef.current && !speakersEnabled) {
+        sustainedAudioStartRef.current = Date.now();
+        console.log(`[AudioMonitoring] Audio above threshold (${audioLevel.toFixed(1)}%), starting ${sustainDuration}ms sustain timer`);
       }
 
+      // Check if audio has been sustained long enough
+      if (sustainedAudioStartRef.current && !speakersEnabled && !controllingSpakersRef.current) {
+        const sustainedFor = Date.now() - sustainedAudioStartRef.current;
+
+        if (sustainedFor >= sustainDuration) {
+          // Audio has been sustained - enable speakers!
+          sustainedAudioStartRef.current = null;
+          setAudioDetected(true);
+          controllingSpakersRef.current = true;
+          setSpeakersEnabled(true);
+
+          addLog({
+            type: "audio_detected",
+            audioLevel,
+            audioThreshold,
+            message: `Audio sustained ${sustainDuration}ms at ${audioLevel.toFixed(1)}% - enabling speakers`,
+          });
+
+          addLog({
+            type: "speakers_enabled",
+            audioLevel,
+            speakersEnabled: true,
+            volume: targetVolume,
+            message: `Speakers enabled - ramping to ${targetVolume}%`,
+          });
+
+          (async () => {
+            await setDevicesVolume(0);
+            await controlSpeakers(true);
+            startVolumeRamp();
+            controllingSpakersRef.current = false;
+          })();
+        }
+      }
+
+      // Clear disable timeout if audio is detected again
       if (audioDetectionTimeoutRef.current) {
         clearTimeout(audioDetectionTimeoutRef.current);
         audioDetectionTimeoutRef.current = null;
       }
 
-      if (!speakersEnabled && !controllingSpakersRef.current) {
-        controllingSpakersRef.current = true;
-        setSpeakersEnabled(true);
-
-        addLog({
-          type: "speakers_enabled",
-          audioLevel,
-          speakersEnabled: true,
-          volume: targetVolume,
-          message: `Speakers enabled - ramping to ${targetVolume}%`,
-        });
-
-        (async () => {
-          await setDevicesVolume(0);
-          await controlSpeakers(true);
-          startVolumeRamp();
-          controllingSpakersRef.current = false;
-        })();
-      }
     } else {
+      // Audio is below threshold
+
+      // Reset sustained audio timer if it was tracking
+      if (sustainedAudioStartRef.current) {
+        console.log(`[AudioMonitoring] Audio dropped below threshold before sustain duration`);
+        sustainedAudioStartRef.current = null;
+      }
+
+      // Start disable countdown if speakers are on
       if (audioDetected && speakersEnabled) {
         if (!audioDetectionTimeoutRef.current) {
           addLog({
@@ -572,7 +620,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog]);
 
   const startMonitoring = useCallback((inputDevice?: string) => {
     console.log('[AudioMonitoring] Starting monitoring', inputDevice);
@@ -645,6 +693,10 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     setNightRampDurationState(duration);
   }, []);
 
+  const setSustainDuration = useCallback((duration: number) => {
+    setSustainDurationState(duration);
+  }, []);
+
   const clearLogs = useCallback(() => {
     setLogs([]);
     console.log('[AudioLog] Logs cleared');
@@ -677,12 +729,14 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         dayStartHour,
         dayEndHour,
         nightRampDuration,
+        sustainDuration,
         setRampEnabled,
         setRampDuration,
         setDayNightMode,
         setDayStartHour,
         setDayEndHour,
         setNightRampDuration,
+        setSustainDuration,
         selectedDevices,
         setSelectedDevices,
         startMonitoring,

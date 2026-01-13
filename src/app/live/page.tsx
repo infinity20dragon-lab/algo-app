@@ -49,6 +49,7 @@ export default function LiveBroadcastPage() {
     dayStartHour,
     dayEndHour,
     nightRampDuration,
+    sustainDuration,
     selectedDevices,
     setSelectedDevices,
     startMonitoring,
@@ -63,6 +64,7 @@ export default function LiveBroadcastPage() {
     setDayStartHour,
     setDayEndHour,
     setNightRampDuration,
+    setSustainDuration,
     devices: contextDevices,
     setDevices: setContextDevices,
   } = useAudioMonitoring();
@@ -416,7 +418,30 @@ export default function LiveBroadcastPage() {
                     showValue
                   />
                   <p className="text-sm text-gray-500">
-                    Minimum audio level to trigger speaker activation (default: 5%)
+                    Minimum audio level to trigger speaker activation (recommended: 15%)
+                  </p>
+                </div>
+
+                {/* Sustain Duration Control */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Sustain Duration: {(sustainDuration / 1000).toFixed(1)}s</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        Live adjustable
+                      </Badge>
+                    )}
+                  </div>
+                  <Slider
+                    min={0}
+                    max={3000}
+                    step={100}
+                    value={sustainDuration}
+                    onChange={(e) => setSustainDuration(parseInt(e.target.value))}
+                    showValue
+                  />
+                  <p className="text-sm text-gray-500">
+                    Audio must stay above threshold for this long to trigger (0s = instant)
                   </p>
                 </div>
 
