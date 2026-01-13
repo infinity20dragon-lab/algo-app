@@ -53,6 +53,21 @@ export default function LiveBroadcastPage() {
   const controllingSpakersRef = useRef<boolean>(false);
   const volumeRampIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentVolumeRef = useRef<number>(0);
+  const hasRestoredStateRef = useRef<boolean>(false);
+  const cleanupDataRef = useRef<{ devices: AlgoDevice[], selectedDevices: string[], speakersEnabled: boolean }>({
+    devices: [],
+    selectedDevices: [],
+    speakersEnabled: false,
+  });
+
+  // LocalStorage keys
+  const STORAGE_KEYS = {
+    IS_MONITORING: 'algo_live_is_monitoring',
+    SELECTED_DEVICES: 'algo_live_selected_devices',
+    SELECTED_INPUT: 'algo_live_selected_input',
+    TARGET_VOLUME: 'algo_live_target_volume',
+    INPUT_GAIN: 'algo_live_input_gain',
+  };
 
   const {
     isCapturing,
@@ -73,14 +88,148 @@ export default function LiveBroadcastPage() {
 
   const [enablingDisablingSpeakers, setEnablingDisablingSpeakers] = useState(false);
 
+  // Load data and restore persisted state on mount
   useEffect(() => {
     loadData();
     loadInputDevices();
+
+    // Restore persisted state from localStorage
+    const restoreState = () => {
+      try {
+        const savedDevices = localStorage.getItem(STORAGE_KEYS.SELECTED_DEVICES);
+        const savedInput = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT);
+        const savedTargetVolume = localStorage.getItem(STORAGE_KEYS.TARGET_VOLUME);
+        const savedInputGain = localStorage.getItem(STORAGE_KEYS.INPUT_GAIN);
+        const wasMonitoring = localStorage.getItem(STORAGE_KEYS.IS_MONITORING) === 'true';
+
+        if (savedDevices) {
+          setSelectedDevices(JSON.parse(savedDevices));
+        }
+        if (savedInput) {
+          setSelectedInputDevice(savedInput);
+        }
+        if (savedTargetVolume) {
+          setTargetVolume(parseInt(savedTargetVolume));
+        }
+        if (savedInputGain) {
+          setVolume(parseInt(savedInputGain));
+        }
+
+        hasRestoredStateRef.current = true;
+
+        // Auto-start monitoring if it was active before
+        if (wasMonitoring) {
+          console.log('[Live] Auto-resuming monitoring from previous session');
+          setTimeout(() => {
+            startCapture(savedInput || undefined);
+          }, 1000); // Small delay to ensure audio devices are ready
+        }
+      } catch (error) {
+        console.error('[Live] Failed to restore state:', error);
+      }
+    };
+
+    restoreState();
   }, []);
 
   useEffect(() => {
     setGainVolume(volume);
   }, [volume, setGainVolume]);
+
+  // Persist state changes to localStorage
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return; // Don't save initial state before restoration
+
+    localStorage.setItem(STORAGE_KEYS.SELECTED_DEVICES, JSON.stringify(selectedDevices));
+  }, [selectedDevices]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+
+    localStorage.setItem(STORAGE_KEYS.SELECTED_INPUT, selectedInputDevice);
+  }, [selectedInputDevice]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+
+    localStorage.setItem(STORAGE_KEYS.TARGET_VOLUME, targetVolume.toString());
+  }, [targetVolume]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+
+    localStorage.setItem(STORAGE_KEYS.INPUT_GAIN, volume.toString());
+  }, [volume]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+
+    localStorage.setItem(STORAGE_KEYS.IS_MONITORING, isCapturing.toString());
+  }, [isCapturing]);
+
+  // Keep cleanup data ref updated with current values
+  useEffect(() => {
+    cleanupDataRef.current = {
+      devices,
+      selectedDevices,
+      speakersEnabled,
+    };
+  }, [devices, selectedDevices, speakersEnabled]);
+
+  // Cleanup on unmount - stop monitoring and disable speakers
+  useEffect(() => {
+    return () => {
+      console.log('[Live] Component unmounting - cleaning up');
+
+      // Stop audio capture
+      stopCapture();
+
+      // Stop volume ramp
+      if (volumeRampIntervalRef.current) {
+        clearInterval(volumeRampIntervalRef.current);
+      }
+
+      // Get current state from ref (captured at time of unmount)
+      const { devices: currentDevices, selectedDevices: currentSelected, speakersEnabled: speakersCurrentlyEnabled } = cleanupDataRef.current;
+
+      // Disable speakers if they're enabled
+      if (speakersCurrentlyEnabled && currentSelected.length > 0) {
+        console.log('[Live] Disabling speakers on unmount');
+
+        // We need to call the API directly since we're in cleanup
+        const disableSpeakers = async () => {
+          for (const deviceId of currentSelected) {
+            const device = currentDevices.find(d => d.id === deviceId);
+            if (!device) continue;
+
+            if (device.type === "8301" && device.linkedSpeakerIds && device.linkedSpeakerIds.length > 0) {
+              const linkedSpeakers = currentDevices.filter(d => device.linkedSpeakerIds?.includes(d.id));
+
+              try {
+                await fetch("/api/algo/speakers/mcast", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    speakers: linkedSpeakers.map(s => ({
+                      ipAddress: s.ipAddress,
+                      password: s.apiPassword,
+                      authMethod: s.authMethod,
+                    })),
+                    enable: false,
+                  }),
+                });
+                console.log('[Live] Successfully disabled speakers on unmount');
+              } catch (error) {
+                console.error('[Live] Failed to disable speakers on unmount:', error);
+              }
+            }
+          }
+        };
+
+        disableSpeakers();
+      }
+    };
+  }, []); // Empty deps - only run on mount/unmount
 
   // Audio activity detection - automatically enable/disable speakers
   useEffect(() => {
