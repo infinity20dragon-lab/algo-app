@@ -17,6 +17,20 @@ interface AudioMonitoringContextType {
   audioDetected: boolean;
   speakersEnabled: boolean;
 
+  // Ramp settings
+  rampEnabled: boolean;
+  rampDuration: number;
+  dayNightMode: boolean;
+  dayStartHour: number;
+  dayEndHour: number;
+  nightRampDuration: number;
+  setRampEnabled: (enabled: boolean) => void;
+  setRampDuration: (duration: number) => void;
+  setDayNightMode: (enabled: boolean) => void;
+  setDayStartHour: (hour: number) => void;
+  setDayEndHour: (hour: number) => void;
+  setNightRampDuration: (duration: number) => void;
+
   // Device selection
   selectedDevices: string[];
   setSelectedDevices: (devices: string[]) => void;
@@ -44,6 +58,12 @@ const STORAGE_KEYS = {
   TARGET_VOLUME: 'algo_live_target_volume',
   INPUT_GAIN: 'algo_live_input_gain',
   AUDIO_THRESHOLD: 'algo_live_audio_threshold',
+  RAMP_ENABLED: 'algo_live_ramp_enabled',
+  RAMP_DURATION: 'algo_live_ramp_duration',
+  DAY_NIGHT_MODE: 'algo_live_day_night_mode',
+  DAY_START_HOUR: 'algo_live_day_start_hour',
+  DAY_END_HOUR: 'algo_live_day_end_hour',
+  NIGHT_RAMP_DURATION: 'algo_live_night_ramp_duration',
 };
 
 export function AudioMonitoringProvider({ children }: { children: React.ReactNode }) {
@@ -55,6 +75,14 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const [devices, setDevices] = useState<AlgoDevice[]>([]);
   const [audioDetected, setAudioDetected] = useState(false);
   const [speakersEnabled, setSpeakersEnabled] = useState(false);
+
+  // Ramp settings
+  const [rampEnabled, setRampEnabledState] = useState(true);
+  const [rampDuration, setRampDurationState] = useState(15); // 15 seconds default
+  const [dayNightMode, setDayNightModeState] = useState(false);
+  const [dayStartHour, setDayStartHourState] = useState(6); // 6 AM
+  const [dayEndHour, setDayEndHourState] = useState(18); // 6 PM
+  const [nightRampDuration, setNightRampDurationState] = useState(10); // 10 seconds for night
 
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const controllingSpakersRef = useRef<boolean>(false);
@@ -89,6 +117,12 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       const savedTargetVolume = localStorage.getItem(STORAGE_KEYS.TARGET_VOLUME);
       const savedInputGain = localStorage.getItem(STORAGE_KEYS.INPUT_GAIN);
       const savedAudioThreshold = localStorage.getItem(STORAGE_KEYS.AUDIO_THRESHOLD);
+      const savedRampEnabled = localStorage.getItem(STORAGE_KEYS.RAMP_ENABLED);
+      const savedRampDuration = localStorage.getItem(STORAGE_KEYS.RAMP_DURATION);
+      const savedDayNightMode = localStorage.getItem(STORAGE_KEYS.DAY_NIGHT_MODE);
+      const savedDayStartHour = localStorage.getItem(STORAGE_KEYS.DAY_START_HOUR);
+      const savedDayEndHour = localStorage.getItem(STORAGE_KEYS.DAY_END_HOUR);
+      const savedNightRampDuration = localStorage.getItem(STORAGE_KEYS.NIGHT_RAMP_DURATION);
       const wasMonitoring = localStorage.getItem(STORAGE_KEYS.IS_MONITORING) === 'true';
 
       console.log('[AudioMonitoring] Saved state:', {
@@ -97,6 +131,12 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         targetVolume: savedTargetVolume,
         inputGain: savedInputGain,
         audioThreshold: savedAudioThreshold,
+        rampEnabled: savedRampEnabled,
+        rampDuration: savedRampDuration,
+        dayNightMode: savedDayNightMode,
+        dayStartHour: savedDayStartHour,
+        dayEndHour: savedDayEndHour,
+        nightRampDuration: savedNightRampDuration,
         wasMonitoring,
       });
 
@@ -117,6 +157,24 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
       if (savedAudioThreshold) {
         setAudioThresholdState(parseInt(savedAudioThreshold));
+      }
+      if (savedRampEnabled !== null) {
+        setRampEnabledState(savedRampEnabled === 'true');
+      }
+      if (savedRampDuration) {
+        setRampDurationState(parseInt(savedRampDuration));
+      }
+      if (savedDayNightMode !== null) {
+        setDayNightModeState(savedDayNightMode === 'true');
+      }
+      if (savedDayStartHour) {
+        setDayStartHourState(parseInt(savedDayStartHour));
+      }
+      if (savedDayEndHour) {
+        setDayEndHourState(parseInt(savedDayEndHour));
+      }
+      if (savedNightRampDuration) {
+        setNightRampDurationState(parseInt(savedNightRampDuration));
       }
 
       // Mark as restored
@@ -174,6 +232,42 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     console.log('[AudioMonitoring] Saving audio threshold:', audioThreshold);
     localStorage.setItem(STORAGE_KEYS.AUDIO_THRESHOLD, audioThreshold.toString());
   }, [audioThreshold]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving ramp enabled:', rampEnabled);
+    localStorage.setItem(STORAGE_KEYS.RAMP_ENABLED, rampEnabled.toString());
+  }, [rampEnabled]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving ramp duration:', rampDuration);
+    localStorage.setItem(STORAGE_KEYS.RAMP_DURATION, rampDuration.toString());
+  }, [rampDuration]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving day/night mode:', dayNightMode);
+    localStorage.setItem(STORAGE_KEYS.DAY_NIGHT_MODE, dayNightMode.toString());
+  }, [dayNightMode]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving day start hour:', dayStartHour);
+    localStorage.setItem(STORAGE_KEYS.DAY_START_HOUR, dayStartHour.toString());
+  }, [dayStartHour]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving day end hour:', dayEndHour);
+    localStorage.setItem(STORAGE_KEYS.DAY_END_HOUR, dayEndHour.toString());
+  }, [dayEndHour]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving night ramp duration:', nightRampDuration);
+    localStorage.setItem(STORAGE_KEYS.NIGHT_RAMP_DURATION, nightRampDuration.toString());
+  }, [nightRampDuration]);
 
   // Watch for target volume changes - restart ramp if speakers are enabled
   useEffect(() => {
@@ -237,20 +331,60 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     await Promise.all(volumePromises);
   }, [selectedDevices, devices]);
 
-  // Ramp volume from startFrom to target over 15 seconds
+  // Helper function to determine if it's currently daytime
+  const isDaytime = useCallback(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    return currentHour >= dayStartHour && currentHour < dayEndHour;
+  }, [dayStartHour, dayEndHour]);
+
+  // Get the effective ramp duration based on settings
+  const getEffectiveRampDuration = useCallback(() => {
+    // If ramp is disabled, return 0 (instant)
+    if (!rampEnabled) {
+      console.log('[AudioMonitoring] Ramp disabled - instant volume');
+      return 0;
+    }
+
+    // If day/night mode is enabled, check time of day
+    if (dayNightMode) {
+      if (isDaytime()) {
+        console.log('[AudioMonitoring] Daytime detected - instant volume');
+        return 0; // Instant during day
+      } else {
+        console.log(`[AudioMonitoring] Nighttime detected - ${nightRampDuration}s ramp`);
+        return nightRampDuration * 1000; // Night ramp duration in ms
+      }
+    }
+
+    // Otherwise use the manual ramp duration setting
+    console.log(`[AudioMonitoring] Manual mode - ${rampDuration}s ramp`);
+    return rampDuration * 1000;
+  }, [rampEnabled, dayNightMode, isDaytime, rampDuration, nightRampDuration]);
+
+  // Ramp volume from startFrom to target
   const startVolumeRamp = useCallback((startFrom: number = 0) => {
     if (volumeRampIntervalRef.current) {
       clearInterval(volumeRampIntervalRef.current);
     }
 
+    const effectiveRampDuration = getEffectiveRampDuration();
     currentVolumeRef.current = startFrom;
-    const rampDuration = 15000;
+
+    // If ramp duration is 0 (instant), set target volume immediately
+    if (effectiveRampDuration === 0) {
+      console.log(`[AudioMonitoring] Instant volume: ${targetVolume}%`);
+      currentVolumeRef.current = targetVolume;
+      setDevicesVolume(targetVolume);
+      return;
+    }
+
     const stepInterval = 500;
-    const steps = rampDuration / stepInterval;
+    const steps = effectiveRampDuration / stepInterval;
     const volumeDiff = targetVolume - startFrom;
     const volumeIncrement = volumeDiff / steps;
 
-    console.log(`[AudioMonitoring] Starting volume ramp: ${startFrom}% → ${targetVolume}% over ${rampDuration/1000}s`);
+    console.log(`[AudioMonitoring] Starting volume ramp: ${startFrom}% → ${targetVolume}% over ${effectiveRampDuration/1000}s`);
 
     // Set initial volume
     setDevicesVolume(startFrom);
@@ -280,7 +414,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setDevicesVolume(currentVolumeRef.current);
       }
     }, stepInterval);
-  }, [targetVolume, setDevicesVolume]);
+  }, [targetVolume, setDevicesVolume, getEffectiveRampDuration]);
 
   const stopVolumeRamp = useCallback(() => {
     if (volumeRampIntervalRef.current) {
@@ -414,6 +548,30 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     setAudioThresholdState(threshold);
   }, []);
 
+  const setRampEnabled = useCallback((enabled: boolean) => {
+    setRampEnabledState(enabled);
+  }, []);
+
+  const setRampDuration = useCallback((duration: number) => {
+    setRampDurationState(duration);
+  }, []);
+
+  const setDayNightMode = useCallback((enabled: boolean) => {
+    setDayNightModeState(enabled);
+  }, []);
+
+  const setDayStartHour = useCallback((hour: number) => {
+    setDayStartHourState(hour);
+  }, []);
+
+  const setDayEndHour = useCallback((hour: number) => {
+    setDayEndHourState(hour);
+  }, []);
+
+  const setNightRampDuration = useCallback((duration: number) => {
+    setNightRampDurationState(duration);
+  }, []);
+
   return (
     <AudioMonitoringContext.Provider
       value={{
@@ -425,6 +583,18 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         audioThreshold,
         audioDetected,
         speakersEnabled,
+        rampEnabled,
+        rampDuration,
+        dayNightMode,
+        dayStartHour,
+        dayEndHour,
+        nightRampDuration,
+        setRampEnabled,
+        setRampDuration,
+        setDayNightMode,
+        setDayStartHour,
+        setDayEndHour,
+        setNightRampDuration,
         selectedDevices,
         setSelectedDevices,
         startMonitoring,

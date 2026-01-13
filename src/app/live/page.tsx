@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Mic,
   MicOff,
@@ -41,6 +42,12 @@ export default function LiveBroadcastPage() {
     audioThreshold,
     audioDetected,
     speakersEnabled,
+    rampEnabled,
+    rampDuration,
+    dayNightMode,
+    dayStartHour,
+    dayEndHour,
+    nightRampDuration,
     selectedDevices,
     setSelectedDevices,
     startMonitoring,
@@ -49,6 +56,12 @@ export default function LiveBroadcastPage() {
     setVolume,
     setTargetVolume,
     setAudioThreshold,
+    setRampEnabled,
+    setRampDuration,
+    setDayNightMode,
+    setDayStartHour,
+    setDayEndHour,
+    setNightRampDuration,
     devices: contextDevices,
     setDevices: setContextDevices,
   } = useAudioMonitoring();
@@ -295,7 +308,14 @@ export default function LiveBroadcastPage() {
               <CardContent className="space-y-6">
                 {/* Input Device Selection */}
                 <div className="space-y-2">
-                  <Label>Input Device</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Input Device</Label>
+                    {isCapturing && (
+                      <Badge variant="secondary" className="text-xs">
+                        Stop to change
+                      </Badge>
+                    )}
+                  </div>
                   <Select
                     value={selectedInputDevice}
                     onChange={(e) => setInputDevice(e.target.value)}
@@ -335,7 +355,14 @@ export default function LiveBroadcastPage() {
 
                 {/* Input Gain Control */}
                 <div className="space-y-2">
-                  <Label>Input Gain: {volume}%</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Input Gain: {volume}%</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        Live adjustable
+                      </Badge>
+                    )}
+                  </div>
                   <Slider
                     min={0}
                     max={200}
@@ -350,7 +377,14 @@ export default function LiveBroadcastPage() {
 
                 {/* Target Volume Control */}
                 <div className="space-y-2">
-                  <Label>Target Speaker Volume: {targetVolume}% (Level {Math.round((targetVolume / 100) * 10)}/10)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Target Speaker Volume: {targetVolume}% (Level {Math.round((targetVolume / 100) * 10)}/10)</Label>
+                    {isCapturing && speakersEnabled && (
+                      <Badge variant="success" className="text-xs">
+                        Live adjustable
+                      </Badge>
+                    )}
+                  </div>
                   <Slider
                     min={0}
                     max={100}
@@ -359,13 +393,20 @@ export default function LiveBroadcastPage() {
                     showValue
                   />
                   <p className="text-sm text-gray-500">
-                    Ramps from 0 to level {Math.round((targetVolume / 100) * 10)} over 15 seconds
+                    Target volume level for speakers (0dB to -30dB range){speakersEnabled && " - ramp restarts when changed"}
                   </p>
                 </div>
 
                 {/* Audio Threshold Control */}
                 <div className="space-y-2">
-                  <Label>Audio Threshold: {audioThreshold}%</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Audio Threshold: {audioThreshold}%</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        Live adjustable
+                      </Badge>
+                    )}
+                  </div>
                   <Slider
                     min={0}
                     max={50}
@@ -376,6 +417,116 @@ export default function LiveBroadcastPage() {
                   <p className="text-sm text-gray-500">
                     Minimum audio level to trigger speaker activation (default: 5%)
                   </p>
+                </div>
+
+                {/* Volume Ramp Settings */}
+                <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <Label>Volume Ramp</Label>
+                        {isCapturing && (
+                          <Badge variant="success" className="text-xs">
+                            Live adjustable
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {rampEnabled
+                          ? "Gradually increase volume when speakers activate"
+                          : "Speakers instantly jump to target volume"
+                        }
+                      </p>
+                    </div>
+                    <Switch
+                      checked={rampEnabled}
+                      onCheckedChange={setRampEnabled}
+                    />
+                  </div>
+
+                  {rampEnabled && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm">Day/Night Mode</Label>
+                          <p className="text-xs text-gray-500">
+                            {dayNightMode
+                              ? "Auto-switch between instant (day) and ramp (night)"
+                              : "Use manual ramp duration setting"
+                            }
+                          </p>
+                        </div>
+                        <Switch
+                          checked={dayNightMode}
+                          onCheckedChange={setDayNightMode}
+                        />
+                      </div>
+
+                      {dayNightMode ? (
+                        <>
+                          <div className="space-y-2">
+                            <Label className="text-sm">Day Hours (Instant Volume)</Label>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={dayStartHour.toString()}
+                                onChange={(e) => setDayStartHour(parseInt(e.target.value))}
+                                className="flex-1"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => (
+                                  <option key={i} value={i}>
+                                    {i.toString().padStart(2, '0')}:00
+                                  </option>
+                                ))}
+                              </Select>
+                              <span className="text-sm text-gray-500">to</span>
+                              <Select
+                                value={dayEndHour.toString()}
+                                onChange={(e) => setDayEndHour(parseInt(e.target.value))}
+                                className="flex-1"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => (
+                                  <option key={i} value={i}>
+                                    {i.toString().padStart(2, '0')}:00
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              During these hours, speakers instantly jump to target volume
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
+                            <Slider
+                              min={0}
+                              max={30}
+                              value={nightRampDuration}
+                              onChange={(e) => setNightRampDuration(parseInt(e.target.value))}
+                              showValue
+                            />
+                            <p className="text-xs text-gray-500">
+                              Outside day hours, ramp volume over {nightRampDuration} seconds
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="space-y-2">
+                          <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
+                          <Slider
+                            min={0}
+                            max={30}
+                            value={rampDuration}
+                            onChange={(e) => setRampDuration(parseInt(e.target.value))}
+                            showValue
+                          />
+                          <p className="text-xs text-gray-500">
+                            Always ramp volume over {rampDuration} seconds (0 = instant)
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 {/* Capture Controls */}
