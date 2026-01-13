@@ -38,6 +38,7 @@ export default function DevicesPage() {
   const [selectedDiscoveredDevices, setSelectedDiscoveredDevices] = useState<Set<string>>(new Set());
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [lastStatusCheck, setLastStatusCheck] = useState<Date | null>(null);
+  const [networkRange, setNetworkRange] = useState("");
 
   useEffect(() => {
     loadDevices();
@@ -173,8 +174,15 @@ export default function DevicesPage() {
     }
   };
 
-  const handleScanNetwork = async () => {
+  const handleScanNetwork = () => {
+    // Open modal without scanning yet
     setShowScanModal(true);
+    setDiscoveredDevices([]);
+    setSelectedDiscoveredDevices(new Set());
+    setNetworkRange(""); // Will be auto-detected or manually entered
+  };
+
+  const startNetworkScan = async () => {
     setScanning(true);
     setDiscoveredDevices([]);
     setSelectedDiscoveredDevices(new Set());
@@ -183,7 +191,9 @@ export default function DevicesPage() {
       const response = await fetch("/api/algo/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // Use auto-detected network range
+        body: JSON.stringify({
+          networkRange: networkRange || undefined, // Use custom or auto-detect
+        }),
       });
 
       if (!response.ok) {
@@ -191,6 +201,11 @@ export default function DevicesPage() {
       }
 
       const data = await response.json();
+
+      // Show what network range was actually scanned
+      if (data.networkRange) {
+        setNetworkRange(data.networkRange.replace('.0/24', ''));
+      }
 
       // Filter out devices that are already added
       const existingIPs = new Set(devices.map(d => d.ipAddress));
@@ -583,11 +598,41 @@ export default function DevicesPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden flex flex-col">
-                {scanning ? (
+                {!scanning && discoveredDevices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                    <div className="mb-4 rounded-full bg-blue-100 p-4">
+                      <Search className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Scan Your Network
+                    </h3>
+                    <div className="w-full max-w-md space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="networkRange">Network Range (optional)</Label>
+                        <Input
+                          id="networkRange"
+                          placeholder="e.g., 10.211.37 or leave blank for auto-detect"
+                          value={networkRange}
+                          onChange={(e) => setNetworkRange(e.target.value)}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Enter first 3 octets (e.g., "10.211.37") or leave blank to auto-detect
+                        </p>
+                      </div>
+                      <Button onClick={startNetworkScan} className="w-full">
+                        <Search className="mr-2 h-4 w-4" />
+                        Start Scanning
+                      </Button>
+                    </div>
+                  </div>
+                ) : scanning ? (
                   <div className="flex flex-col items-center justify-center py-12">
                     <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mb-4" />
                     <p className="text-gray-600">Scanning network for Algo devices...</p>
-                    <p className="text-sm text-gray-400 mt-2">This may take 10-30 seconds</p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Scanning {networkRange || 'auto-detected network'}.0/24
+                    </p>
+                    <p className="text-sm text-gray-400">This may take 10-30 seconds</p>
                   </div>
                 ) : discoveredDevices.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12">
@@ -600,7 +645,7 @@ export default function DevicesPage() {
                     <p className="text-center text-gray-500 mb-4">
                       All Algo devices on your network are already added, or no devices were detected.
                     </p>
-                    <Button onClick={handleScanNetwork} variant="outline">
+                    <Button onClick={startNetworkScan} variant="outline">
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Scan Again
                     </Button>
@@ -638,7 +683,7 @@ export default function DevicesPage() {
                       ))}
                     </div>
                     <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t">
-                      <Button variant="outline" onClick={handleScanNetwork} disabled={saving}>
+                      <Button variant="outline" onClick={startNetworkScan} disabled={saving}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Scan Again
                       </Button>
