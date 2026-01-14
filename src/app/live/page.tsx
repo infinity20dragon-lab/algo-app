@@ -50,6 +50,7 @@ export default function LiveBroadcastPage() {
     dayEndHour,
     nightRampDuration,
     sustainDuration,
+    disableDelay,
     selectedDevices,
     setSelectedDevices,
     startMonitoring,
@@ -65,6 +66,11 @@ export default function LiveBroadcastPage() {
     setDayEndHour,
     setNightRampDuration,
     setSustainDuration,
+    setDisableDelay,
+    loggingEnabled,
+    setLoggingEnabled,
+    recordingEnabled,
+    setRecordingEnabled,
     devices: contextDevices,
     setDevices: setContextDevices,
   } = useAudioMonitoring();
@@ -443,6 +449,64 @@ export default function LiveBroadcastPage() {
                   <p className="text-sm text-gray-500">
                     Audio must stay above threshold for this long to trigger (0s = instant)
                   </p>
+                </div>
+
+                {/* Disable Delay Control */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Disable Delay: {(disableDelay / 1000).toFixed(1)}s</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        Live adjustable
+                      </Badge>
+                    )}
+                  </div>
+                  <Slider
+                    min={1000}
+                    max={30000}
+                    step={1000}
+                    value={disableDelay}
+                    onChange={(e) => setDisableDelay(parseInt(e.target.value))}
+                    showValue
+                  />
+                  <p className="text-sm text-gray-500">
+                    Wait this long after silence before disabling speakers
+                  </p>
+                </div>
+
+                {/* Logging & Recording Settings */}
+                <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm">Activity Logging</Label>
+                      <p className="text-xs text-gray-500">
+                        {loggingEnabled
+                          ? "Log audio events to the activity viewer"
+                          : "Activity logging disabled"
+                        }
+                      </p>
+                    </div>
+                    <Switch
+                      checked={loggingEnabled}
+                      onCheckedChange={setLoggingEnabled}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm">Audio Recording</Label>
+                      <p className="text-xs text-gray-500">
+                        {recordingEnabled
+                          ? "Record and upload audio clips to Firebase"
+                          : "Recording disabled (saves storage space)"
+                        }
+                      </p>
+                    </div>
+                    <Switch
+                      checked={recordingEnabled}
+                      onCheckedChange={setRecordingEnabled}
+                    />
+                  </div>
                 </div>
 
                 {/* Volume Ramp Settings */}

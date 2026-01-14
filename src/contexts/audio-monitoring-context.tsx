@@ -6,6 +6,8 @@ import type { AlgoDevice } from "@/lib/algo/types";
 import { storage } from "@/lib/firebase/config";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/contexts/auth-context";
+// @ts-expect-error - lamejs doesn't have types
+import lamejs from "lamejs";
 
 export interface AudioLogEntry {
   timestamp: string;
@@ -39,6 +41,7 @@ interface AudioMonitoringContextType {
   dayEndHour: number;
   nightRampDuration: number;
   sustainDuration: number;
+  disableDelay: number;
   setRampEnabled: (enabled: boolean) => void;
   setRampDuration: (duration: number) => void;
   setDayNightMode: (enabled: boolean) => void;
@@ -46,6 +49,7 @@ interface AudioMonitoringContextType {
   setDayEndHour: (hour: number) => void;
   setNightRampDuration: (duration: number) => void;
   setSustainDuration: (duration: number) => void;
+  setDisableDelay: (delay: number) => void;
 
   // Device selection
   selectedDevices: string[];
@@ -67,9 +71,89 @@ interface AudioMonitoringContextType {
   logs: AudioLogEntry[];
   clearLogs: () => void;
   exportLogs: () => string;
+  loggingEnabled: boolean;
+  setLoggingEnabled: (enabled: boolean) => void;
+
+  // Recording
+  recordingEnabled: boolean;
+  setRecordingEnabled: (enabled: boolean) => void;
 }
 
 const AudioMonitoringContext = createContext<AudioMonitoringContextType | null>(null);
+
+// Helper function to convert audio blob to MP3
+async function convertToMp3(audioBlob: Blob): Promise<Blob> {
+  // Decode the audio blob to an AudioBuffer
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioContext = new AudioContext();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+  // Get audio data
+  const numberOfChannels = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const samples = audioBuffer.length;
+
+  // Convert to mono if stereo (simpler encoding)
+  let leftChannel: Float32Array;
+  let rightChannel: Float32Array | null = null;
+
+  if (numberOfChannels === 1) {
+    leftChannel = audioBuffer.getChannelData(0);
+  } else {
+    leftChannel = audioBuffer.getChannelData(0);
+    rightChannel = audioBuffer.getChannelData(1);
+  }
+
+  // Convert Float32Array to Int16Array (required by lamejs)
+  const convertToInt16 = (float32Array: Float32Array): Int16Array => {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+  };
+
+  const leftInt16 = convertToInt16(leftChannel);
+  const rightInt16 = rightChannel ? convertToInt16(rightChannel) : null;
+
+  // Create MP3 encoder
+  const mp3Encoder = new lamejs.Mp3Encoder(numberOfChannels, sampleRate, 128);
+  const mp3Data: ArrayBuffer[] = [];
+
+  // Encode in chunks
+  const chunkSize = 1152;
+  for (let i = 0; i < samples; i += chunkSize) {
+    const leftChunk = leftInt16.subarray(i, i + chunkSize);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mp3buf: any;
+
+    if (numberOfChannels === 1) {
+      mp3buf = mp3Encoder.encodeBuffer(leftChunk);
+    } else {
+      const rightChunk = rightInt16!.subarray(i, i + chunkSize);
+      mp3buf = mp3Encoder.encodeBuffer(leftChunk, rightChunk);
+    }
+
+    if (mp3buf.length > 0) {
+      // Convert to regular array buffer
+      mp3Data.push(new Uint8Array(mp3buf).buffer);
+    }
+  }
+
+  // Flush the encoder
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mp3End: any = mp3Encoder.flush();
+  if (mp3End.length > 0) {
+    mp3Data.push(new Uint8Array(mp3End).buffer);
+  }
+
+  // Close the audio context
+  await audioContext.close();
+
+  // Create MP3 blob from array buffers
+  return new Blob(mp3Data, { type: 'audio/mp3' });
+}
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -86,6 +170,9 @@ const STORAGE_KEYS = {
   DAY_END_HOUR: 'algo_live_day_end_hour',
   NIGHT_RAMP_DURATION: 'algo_live_night_ramp_duration',
   SUSTAIN_DURATION: 'algo_live_sustain_duration',
+  DISABLE_DELAY: 'algo_live_disable_delay',
+  LOGGING_ENABLED: 'algo_live_logging_enabled',
+  RECORDING_ENABLED: 'algo_live_recording_enabled',
 };
 
 export function AudioMonitoringProvider({ children }: { children: React.ReactNode }) {
@@ -102,6 +189,8 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
   // Logging
   const [logs, setLogs] = useState<AudioLogEntry[]>([]);
+  const [loggingEnabled, setLoggingEnabledState] = useState(true); // enabled by default
+  const [recordingEnabled, setRecordingEnabledState] = useState(false); // disabled by default to save storage
 
   // Ramp settings
   const [rampEnabled, setRampEnabledState] = useState(true);
@@ -111,6 +200,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const [dayEndHour, setDayEndHourState] = useState(18); // 6 PM
   const [nightRampDuration, setNightRampDurationState] = useState(10); // 10 seconds for night
   const [sustainDuration, setSustainDurationState] = useState(1000); // 1 second default (in ms)
+  const [disableDelay, setDisableDelayState] = useState(3000); // 3 seconds default (in ms)
 
   const audioDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const controllingSpakersRef = useRef<boolean>(false);
@@ -139,12 +229,15 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
   // Helper to add log entry
   const addLog = useCallback((entry: Omit<AudioLogEntry, "timestamp">) => {
+    // Always log to console for debugging
     const logEntry: AudioLogEntry = {
       ...entry,
       timestamp: new Date().toISOString(),
     };
-
     console.log(`[AudioLog] ${logEntry.message}`, logEntry);
+
+    // Only add to UI logs if logging is enabled
+    if (!loggingEnabled) return;
 
     setLogs(prev => {
       const newLogs = [...prev, logEntry];
@@ -154,11 +247,16 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
       return newLogs;
     });
-  }, []);
+  }, [loggingEnabled]);
 
   // Start recording audio
   const startRecording = useCallback(async () => {
     try {
+      if (!recordingEnabled) {
+        console.log('[Recording] Recording is disabled, skipping');
+        return;
+      }
+
       if (!user) {
         console.warn('[Recording] No user authenticated, skipping recording');
         return;
@@ -195,7 +293,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     } catch (error) {
       console.error('[Recording] Failed to start recording:', error);
     }
-  }, [user, selectedInputDevice]);
+  }, [recordingEnabled, user, selectedInputDevice]);
 
   // Stop recording and upload to Firebase
   const stopRecordingAndUpload = useCallback(async (): Promise<string | null> => {
@@ -209,24 +307,29 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
         mediaRecorder.onstop = async () => {
           try {
-            // Create blob from recorded chunks
-            const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+            // Create blob from recorded chunks (WebM format)
+            const webmBlob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
 
-            if (blob.size === 0) {
+            if (webmBlob.size === 0) {
               console.warn('[Recording] No audio data recorded');
               resolve(null);
               return;
             }
 
+            // Convert WebM to MP3 for better phone compatibility
+            console.log(`[Recording] Converting ${webmBlob.size} bytes from WebM to MP3...`);
+            const mp3Blob = await convertToMp3(webmBlob);
+            console.log(`[Recording] Converted to MP3: ${mp3Blob.size} bytes`);
+
             // Generate filename with timestamp
-            const timestamp = recordingStartTimeRef.current.replace(/[:.]/g, '-');
-            const filename = `recording-${timestamp}.webm`;
+            const timestamp = recordingStartTimeRef.current!.replace(/[:.]/g, '-');
+            const filename = `recording-${timestamp}.mp3`;
             const filePath = `audio-recordings/${user.uid}/${filename}`;
 
             // Upload to Firebase Storage
-            console.log(`[Recording] Uploading ${blob.size} bytes to ${filePath}`);
+            console.log(`[Recording] Uploading MP3 to ${filePath}`);
             const fileRef = storageRef(storage, filePath);
-            await uploadBytes(fileRef, blob);
+            await uploadBytes(fileRef, mp3Blob);
 
             // Get download URL
             const downloadUrl = await getDownloadURL(fileRef);
@@ -280,6 +383,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       const savedDayEndHour = localStorage.getItem(STORAGE_KEYS.DAY_END_HOUR);
       const savedNightRampDuration = localStorage.getItem(STORAGE_KEYS.NIGHT_RAMP_DURATION);
       const savedSustainDuration = localStorage.getItem(STORAGE_KEYS.SUSTAIN_DURATION);
+      const savedDisableDelay = localStorage.getItem(STORAGE_KEYS.DISABLE_DELAY);
+      const savedLoggingEnabled = localStorage.getItem(STORAGE_KEYS.LOGGING_ENABLED);
+      const savedRecordingEnabled = localStorage.getItem(STORAGE_KEYS.RECORDING_ENABLED);
       const wasMonitoring = localStorage.getItem(STORAGE_KEYS.IS_MONITORING) === 'true';
 
       console.log('[AudioMonitoring] Saved state:', {
@@ -335,6 +441,15 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
       if (savedSustainDuration) {
         setSustainDurationState(parseInt(savedSustainDuration));
+      }
+      if (savedDisableDelay) {
+        setDisableDelayState(parseInt(savedDisableDelay));
+      }
+      if (savedLoggingEnabled !== null) {
+        setLoggingEnabledState(savedLoggingEnabled === 'true');
+      }
+      if (savedRecordingEnabled !== null) {
+        setRecordingEnabledState(savedRecordingEnabled === 'true');
       }
 
       // Mark as restored
@@ -434,6 +549,24 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     console.log('[AudioMonitoring] Saving sustain duration:', sustainDuration);
     localStorage.setItem(STORAGE_KEYS.SUSTAIN_DURATION, sustainDuration.toString());
   }, [sustainDuration]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving disable delay:', disableDelay);
+    localStorage.setItem(STORAGE_KEYS.DISABLE_DELAY, disableDelay.toString());
+  }, [disableDelay]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving logging enabled:', loggingEnabled);
+    localStorage.setItem(STORAGE_KEYS.LOGGING_ENABLED, loggingEnabled.toString());
+  }, [loggingEnabled]);
+
+  useEffect(() => {
+    if (!hasRestoredStateRef.current) return;
+    console.log('[AudioMonitoring] Saving recording enabled:', recordingEnabled);
+    localStorage.setItem(STORAGE_KEYS.RECORDING_ENABLED, recordingEnabled.toString());
+  }, [recordingEnabled]);
 
   // Watch for target volume changes - restart ramp if speakers are enabled
   useEffect(() => {
@@ -636,7 +769,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       return;
     }
 
-    const DISABLE_DELAY = 10000; // 10 seconds of silence before disabling
+    // Use configurable disable delay (default 3 seconds)
 
     if (audioLevel > audioThreshold) {
       // Audio is above threshold
@@ -708,7 +841,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
             type: "audio_silent",
             audioLevel,
             audioThreshold,
-            message: `Audio below threshold: ${audioLevel.toFixed(1)}% - starting ${DISABLE_DELAY/1000}s countdown`,
+            message: `Audio below threshold: ${audioLevel.toFixed(1)}% - starting ${disableDelay/1000}s countdown`,
           });
 
           audioDetectionTimeoutRef.current = setTimeout(() => {
@@ -731,7 +864,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
                 addLog({
                   type: "speakers_disabled",
                   speakersEnabled: false,
-                  message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence (total audio: ${duration}s)${recordingUrl ? ' 🎙️ Recording saved' : ''}`,
+                  message: `Speakers disabled after ${disableDelay/1000}s of silence (total audio: ${duration}s)${recordingUrl ? ' 🎙️ Recording saved' : ''}`,
                   recordingUrl: recordingUrl || undefined,
                 });
 
@@ -742,11 +875,11 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
               })();
             }
             audioDetectionTimeoutRef.current = null;
-          }, DISABLE_DELAY);
+          }, disableDelay);
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog, startRecording, stopRecordingAndUpload]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, disableDelay, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog, startRecording, stopRecordingAndUpload]);
 
   const startMonitoring = useCallback((inputDevice?: string) => {
     console.log('[AudioMonitoring] Starting monitoring', inputDevice);
@@ -833,6 +966,18 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     setSustainDurationState(duration);
   }, []);
 
+  const setDisableDelay = useCallback((delay: number) => {
+    setDisableDelayState(delay);
+  }, []);
+
+  const setLoggingEnabled = useCallback((enabled: boolean) => {
+    setLoggingEnabledState(enabled);
+  }, []);
+
+  const setRecordingEnabled = useCallback((enabled: boolean) => {
+    setRecordingEnabledState(enabled);
+  }, []);
+
   const clearLogs = useCallback(() => {
     setLogs([]);
     console.log('[AudioLog] Logs cleared');
@@ -866,6 +1011,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         dayEndHour,
         nightRampDuration,
         sustainDuration,
+        disableDelay,
         setRampEnabled,
         setRampDuration,
         setDayNightMode,
@@ -873,6 +1019,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setDayEndHour,
         setNightRampDuration,
         setSustainDuration,
+        setDisableDelay,
         selectedDevices,
         setSelectedDevices,
         startMonitoring,
@@ -886,6 +1033,10 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         logs,
         clearLogs,
         exportLogs,
+        loggingEnabled,
+        setLoggingEnabled,
+        recordingEnabled,
+        setRecordingEnabled,
       }}
     >
       {children}
