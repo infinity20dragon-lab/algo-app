@@ -387,8 +387,8 @@ export default function LiveBroadcastPage() {
                 {/* Target Volume Control */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Target Speaker Volume: {targetVolume}% (Level {Math.round((targetVolume / 100) * 10)}/10)</Label>
-                    {isCapturing && speakersEnabled && (
+                    <Label>Target Speaker Volume: {targetVolume}% (Lv. {Math.round((targetVolume / 100) * 10)}/10)</Label>
+                    {isCapturing && (
                       <Badge variant="success" className="text-xs">
                         Live adjustable
                       </Badge>
@@ -402,7 +402,7 @@ export default function LiveBroadcastPage() {
                     showValue
                   />
                   <p className="text-sm text-gray-500">
-                    Target volume level for speakers (0dB to -30dB range){speakersEnabled && " - ramp restarts when changed"}
+                    Target volume for speakers{speakersEnabled && " - ramp restarts when changed"}
                   </p>
                 </div>
 
@@ -537,8 +537,15 @@ export default function LiveBroadcastPage() {
                   {rampEnabled && (
                     <>
                       <div className="flex items-center justify-between">
-                        <div>
-                          <Label className="text-sm">Day/Night Mode</Label>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <Label className="text-sm">Day/Night Mode</Label>
+                            {isCapturing && (
+                              <Badge variant="success" className="text-xs">
+                                Live adjustable
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-500">
                             {dayNightMode
                               ? "Auto-switch between instant (day) and ramp (night)"
@@ -555,7 +562,14 @@ export default function LiveBroadcastPage() {
                       {dayNightMode ? (
                         <>
                           <div className="space-y-2">
-                            <Label className="text-sm">Day Hours (Instant Volume)</Label>
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm">Day Hours (Instant Volume)</Label>
+                              {isCapturing && (
+                                <Badge variant="success" className="text-xs">
+                                  Live adjustable
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex items-center gap-2">
                               <Select
                                 value={dayStartHour.toString()}
@@ -587,7 +601,14 @@ export default function LiveBroadcastPage() {
                           </div>
 
                           <div className="space-y-2">
-                            <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
+                              {isCapturing && (
+                                <Badge variant="success" className="text-xs">
+                                  Live adjustable
+                                </Badge>
+                              )}
+                            </div>
                             <Slider
                               min={0}
                               max={30}
@@ -602,7 +623,14 @@ export default function LiveBroadcastPage() {
                         </>
                       ) : (
                         <div className="space-y-2">
-                          <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
+                            {isCapturing && (
+                              <Badge variant="success" className="text-xs">
+                                Live adjustable
+                              </Badge>
+                            )}
+                          </div>
                           <Slider
                             min={0}
                             max={30}
