@@ -116,6 +116,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   // Sustained audio tracking
   const sustainedAudioStartRef = useRef<number | null>(null);
   const sustainCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const speakersEnabledTimeRef = useRef<number | null>(null);
 
   const {
     isCapturing,
@@ -546,6 +547,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
           setAudioDetected(true);
           controllingSpakersRef.current = true;
           setSpeakersEnabled(true);
+          speakersEnabledTimeRef.current = Date.now(); // Track when speakers were enabled
 
           addLog({
             type: "audio_detected",
@@ -602,10 +604,16 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
               setSpeakersEnabled(false);
               setAudioDetected(false);
 
+              // Calculate how long speakers were active
+              const duration = speakersEnabledTimeRef.current
+                ? ((Date.now() - speakersEnabledTimeRef.current) / 1000).toFixed(1)
+                : '?';
+              speakersEnabledTimeRef.current = null;
+
               addLog({
                 type: "speakers_disabled",
                 speakersEnabled: false,
-                message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence`,
+                message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence (total audio: ${duration}s)`,
               });
 
               (async () => {
@@ -634,10 +642,20 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
   const stopMonitoring = useCallback(async () => {
     console.log('[AudioMonitoring] Stopping monitoring');
+
+    // Calculate duration if speakers were on
+    const duration = speakersEnabledTimeRef.current
+      ? ((Date.now() - speakersEnabledTimeRef.current) / 1000).toFixed(1)
+      : null;
+    speakersEnabledTimeRef.current = null;
+
     addLog({
       type: "speakers_disabled",
-      message: 'Monitoring stopped',
+      message: duration
+        ? `Monitoring stopped (speakers were active for ${duration}s)`
+        : 'Monitoring stopped',
     });
+
     stopCapture();
     stopVolumeRamp();
 
