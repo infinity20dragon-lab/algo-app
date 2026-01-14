@@ -8,7 +8,7 @@ import { Download, Trash2, Copy } from "lucide-react";
 import { useState } from "react";
 
 export function AudioLogViewer() {
-  const { logs, clearLogs, exportLogs } = useAudioMonitoring();
+  const { logs, clearLogs, exportLogs, loggingEnabled, recordingEnabled } = useAudioMonitoring();
   const [copied, setCopied] = useState(false);
 
   const handleExport = () => {
@@ -69,8 +69,17 @@ export function AudioLogViewer() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-lg">Activity Log</CardTitle>
-            <CardDescription>
-              Real-time monitoring events ({logs.length} entries)
+            <CardDescription className="flex items-center gap-2">
+              <span>Real-time monitoring events ({logs.length} entries)</span>
+              {!loggingEnabled && (
+                <Badge variant="secondary" className="text-xs">Logging OFF</Badge>
+              )}
+              {!recordingEnabled && (
+                <Badge variant="secondary" className="text-xs">Recording OFF</Badge>
+              )}
+              {recordingEnabled && (
+                <Badge variant="success" className="text-xs">Recording ON</Badge>
+              )}
             </CardDescription>
           </div>
           <div className="flex gap-2">
