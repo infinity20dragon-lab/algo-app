@@ -476,8 +476,17 @@ export default function LiveBroadcastPage() {
 
                 {/* Logging & Recording Settings */}
                 <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-base font-medium">Logging & Recording</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        All live adjustable
+                      </Badge>
+                    )}
+                  </div>
+
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="flex-1 mr-4">
                       <Label className="text-sm">Activity Logging</Label>
                       <p className="text-xs text-gray-500">
                         {loggingEnabled
@@ -493,11 +502,11 @@ export default function LiveBroadcastPage() {
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="flex-1 mr-4">
                       <Label className="text-sm">Audio Recording</Label>
                       <p className="text-xs text-gray-500">
                         {recordingEnabled
-                          ? "Record and upload audio clips to Firebase"
+                          ? "Record and upload audio clips to Firebase (MP3)"
                           : "Recording disabled (saves storage space)"
                         }
                       </p>
@@ -511,16 +520,18 @@ export default function LiveBroadcastPage() {
 
                 {/* Volume Ramp Settings */}
                 <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-base font-medium">Volume Ramp Settings</Label>
+                    {isCapturing && (
+                      <Badge variant="success" className="text-xs">
+                        All live adjustable
+                      </Badge>
+                    )}
+                  </div>
+
                   <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <Label>Volume Ramp</Label>
-                        {isCapturing && (
-                          <Badge variant="success" className="text-xs">
-                            Live adjustable
-                          </Badge>
-                        )}
-                      </div>
+                    <div className="flex-1 mr-4">
+                      <Label className="text-sm">Enable Volume Ramp</Label>
                       <p className="text-xs text-gray-500">
                         {rampEnabled
                           ? "Gradually increase volume when speakers activate"
@@ -537,15 +548,8 @@ export default function LiveBroadcastPage() {
                   {rampEnabled && (
                     <>
                       <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <Label className="text-sm">Day/Night Mode</Label>
-                            {isCapturing && (
-                              <Badge variant="success" className="text-xs">
-                                Live adjustable
-                              </Badge>
-                            )}
-                          </div>
+                        <div className="flex-1 mr-4">
+                          <Label className="text-sm">Day/Night Mode</Label>
                           <p className="text-xs text-gray-500">
                             {dayNightMode
                               ? "Auto-switch between instant (day) and ramp (night)"
@@ -562,14 +566,7 @@ export default function LiveBroadcastPage() {
                       {dayNightMode ? (
                         <>
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label className="text-sm">Day Hours (Instant Volume)</Label>
-                              {isCapturing && (
-                                <Badge variant="success" className="text-xs">
-                                  Live adjustable
-                                </Badge>
-                              )}
-                            </div>
+                            <Label className="text-sm">Day Hours (Instant Volume)</Label>
                             <div className="flex items-center gap-2">
                               <Select
                                 value={dayStartHour.toString()}
@@ -601,14 +598,7 @@ export default function LiveBroadcastPage() {
                           </div>
 
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
-                              {isCapturing && (
-                                <Badge variant="success" className="text-xs">
-                                  Live adjustable
-                                </Badge>
-                              )}
-                            </div>
+                            <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
                             <Slider
                               min={0}
                               max={30}
@@ -623,14 +613,7 @@ export default function LiveBroadcastPage() {
                         </>
                       ) : (
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
-                            {isCapturing && (
-                              <Badge variant="success" className="text-xs">
-                                Live adjustable
-                              </Badge>
-                            )}
-                          </div>
+                          <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
                           <Slider
                             min={0}
                             max={30}
