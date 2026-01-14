@@ -335,20 +335,31 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
               return;
             }
 
-            // Convert WebM to MP3 for better phone compatibility
-            debugLog(`[Recording] Converting ${webmBlob.size} bytes from WebM to MP3...`);
-            const mp3Blob = await convertToMp3(webmBlob);
-            debugLog(`[Recording] Converted to MP3: ${mp3Blob.size} bytes`);
+            // Try to convert WebM to MP3 for better phone compatibility
+            let finalBlob: Blob;
+            let fileExtension: string;
+
+            try {
+              debugLog(`[Recording] Converting ${webmBlob.size} bytes from WebM to MP3...`);
+              finalBlob = await convertToMp3(webmBlob);
+              fileExtension = 'mp3';
+              debugLog(`[Recording] Converted to MP3: ${finalBlob.size} bytes`);
+            } catch (conversionError) {
+              // Fallback to WebM if MP3 conversion fails
+              console.warn('[Recording] MP3 conversion failed, falling back to WebM:', conversionError);
+              finalBlob = webmBlob;
+              fileExtension = 'webm';
+            }
 
             // Generate filename with timestamp
             const timestamp = recordingStartTimeRef.current!.replace(/[:.]/g, '-');
-            const filename = `recording-${timestamp}.mp3`;
+            const filename = `recording-${timestamp}.${fileExtension}`;
             const filePath = `audio-recordings/${user.uid}/${filename}`;
 
             // Upload to Firebase Storage
-            debugLog(`[Recording] Uploading MP3 to ${filePath}`);
+            debugLog(`[Recording] Uploading ${fileExtension.toUpperCase()} to ${filePath}`);
             const fileRef = storageRef(storage, filePath);
-            await uploadBytes(fileRef, mp3Blob);
+            await uploadBytes(fileRef, finalBlob);
 
             // Get download URL
             const downloadUrl = await getDownloadURL(fileRef);

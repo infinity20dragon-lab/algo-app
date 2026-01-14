@@ -69,7 +69,7 @@ export function AudioLogViewer() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-lg">Activity Log</CardTitle>
-            <CardDescription className="flex items-center gap-2">
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
               <span>Real-time monitoring events ({logs.length} entries)</span>
               {!loggingEnabled && (
                 <Badge variant="secondary" className="text-xs">Logging OFF</Badge>
@@ -80,7 +80,7 @@ export function AudioLogViewer() {
               {recordingEnabled && (
                 <Badge variant="success" className="text-xs">Recording ON</Badge>
               )}
-            </CardDescription>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
