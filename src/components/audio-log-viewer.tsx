@@ -118,6 +118,7 @@ export function AudioLogViewer() {
                   <th className="px-2 py-2 text-left font-medium text-gray-600">Type</th>
                   <th className="px-2 py-2 text-left font-medium text-gray-600">Audio Level</th>
                   <th className="px-2 py-2 text-left font-medium text-gray-600">Message</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-600">Recording</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,6 +140,18 @@ export function AudioLogViewer() {
                       )}
                     </td>
                     <td className="px-2 py-2 text-gray-900">{log.message}</td>
+                    <td className="px-2 py-2">
+                      {log.recordingUrl ? (
+                        <audio
+                          controls
+                          className="h-8"
+                          preload="none"
+                          src={log.recordingUrl}
+                        />
+                      ) : (
+                        <span className="text-gray-400 text-xs">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

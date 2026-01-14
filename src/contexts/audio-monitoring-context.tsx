@@ -3,6 +3,9 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
 import { useAudioCapture } from "@/hooks/useAudioCapture";
 import type { AlgoDevice } from "@/lib/algo/types";
+import { storage } from "@/lib/firebase/config";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useAuth } from "@/contexts/auth-context";
 
 export interface AudioLogEntry {
   timestamp: string;
@@ -12,6 +15,7 @@ export interface AudioLogEntry {
   speakersEnabled?: boolean;
   volume?: number;
   message: string;
+  recordingUrl?: string; // URL to recorded audio clip
 }
 
 interface AudioMonitoringContextType {
@@ -85,6 +89,8 @@ const STORAGE_KEYS = {
 };
 
 export function AudioMonitoringProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
   const [selectedInputDevice, setSelectedInputDeviceState] = useState<string>("");
   const [volume, setVolumeState] = useState(50);
   const [targetVolume, setTargetVolumeState] = useState(100);
@@ -118,6 +124,11 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const sustainCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const speakersEnabledTimeRef = useRef<number | null>(null);
 
+  // Recording
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingStartTimeRef = useRef<string | null>(null);
+
   const {
     isCapturing,
     audioLevel,
@@ -144,6 +155,105 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       return newLogs;
     });
   }, []);
+
+  // Start recording audio
+  const startRecording = useCallback(async () => {
+    try {
+      if (!user) {
+        console.warn('[Recording] No user authenticated, skipping recording');
+        return;
+      }
+
+      // Get the audio stream from the microphone
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: selectedInputDevice || undefined,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      });
+
+      // Create media recorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm',
+      });
+
+      recordedChunksRef.current = [];
+      recordingStartTimeRef.current = new Date().toISOString();
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorderRef.current = mediaRecorder;
+
+      console.log('[Recording] Started recording audio');
+    } catch (error) {
+      console.error('[Recording] Failed to start recording:', error);
+    }
+  }, [user, selectedInputDevice]);
+
+  // Stop recording and upload to Firebase
+  const stopRecordingAndUpload = useCallback(async (): Promise<string | null> => {
+    return new Promise((resolve) => {
+      try {
+        const mediaRecorder = mediaRecorderRef.current;
+        if (!mediaRecorder || !user || !recordingStartTimeRef.current) {
+          resolve(null);
+          return;
+        }
+
+        mediaRecorder.onstop = async () => {
+          try {
+            // Create blob from recorded chunks
+            const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+
+            if (blob.size === 0) {
+              console.warn('[Recording] No audio data recorded');
+              resolve(null);
+              return;
+            }
+
+            // Generate filename with timestamp
+            const timestamp = recordingStartTimeRef.current.replace(/[:.]/g, '-');
+            const filename = `recording-${timestamp}.webm`;
+            const filePath = `audio-recordings/${user.uid}/${filename}`;
+
+            // Upload to Firebase Storage
+            console.log(`[Recording] Uploading ${blob.size} bytes to ${filePath}`);
+            const fileRef = storageRef(storage, filePath);
+            await uploadBytes(fileRef, blob);
+
+            // Get download URL
+            const downloadUrl = await getDownloadURL(fileRef);
+            console.log('[Recording] Upload successful:', downloadUrl);
+
+            // Clean up
+            recordedChunksRef.current = [];
+            recordingStartTimeRef.current = null;
+            mediaRecorderRef.current = null;
+
+            // Stop all tracks
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+            resolve(downloadUrl);
+          } catch (error) {
+            console.error('[Recording] Upload failed:', error);
+            resolve(null);
+          }
+        };
+
+        mediaRecorder.stop();
+      } catch (error) {
+        console.error('[Recording] Stop failed:', error);
+        resolve(null);
+      }
+    });
+  }, [user]);
 
   // Update gain when volume changes
   useEffect(() => {
@@ -565,6 +675,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
           });
 
           (async () => {
+            // Start recording the audio
+            await startRecording();
+
             await setDevicesVolume(0);
             await controlSpeakers(true);
             startVolumeRamp();
@@ -610,13 +723,18 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
                 : '?';
               speakersEnabledTimeRef.current = null;
 
-              addLog({
-                type: "speakers_disabled",
-                speakersEnabled: false,
-                message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence (total audio: ${duration}s)`,
-              });
-
               (async () => {
+                // Stop recording and upload
+                const recordingUrl = await stopRecordingAndUpload();
+
+                // Log with recording URL if available
+                addLog({
+                  type: "speakers_disabled",
+                  speakersEnabled: false,
+                  message: `Speakers disabled after ${DISABLE_DELAY/1000}s of silence (total audio: ${duration}s)${recordingUrl ? ' 🎙️ Recording saved' : ''}`,
+                  recordingUrl: recordingUrl || undefined,
+                });
+
                 stopVolumeRamp();
                 await setDevicesVolume(0);
                 await controlSpeakers(false);
@@ -628,7 +746,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         }
       }
     }
-  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog]);
+  }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog, startRecording, stopRecordingAndUpload]);
 
   const startMonitoring = useCallback((inputDevice?: string) => {
     console.log('[AudioMonitoring] Starting monitoring', inputDevice);

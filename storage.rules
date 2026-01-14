@@ -1,0 +1,62 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules
+// Secure rules for audio monitoring recordings
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if file is an audio file
+    function isAudioFile() {
+      return request.resource.contentType.matches('audio/.*')
+          || request.resource.contentType.matches('video/webm'); // WebM can contain audio
+    }
+
+    // Helper function to check file size (max 10MB for audio recordings)
+    function isValidSize() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // Audio recordings from monitoring system
+    // Path: audio-recordings/{userId}/{filename}
+    match /audio-recordings/{userId}/{filename} {
+      // Allow authenticated users to read their own recordings
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+
+      // Allow authenticated users to write their own recordings
+      // Must be audio file and under size limit
+      allow write: if isAuthenticated()
+                   && request.auth.uid == userId
+                   && isAudioFile()
+                   && isValidSize();
+
+      // Allow delete only by the owner
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Audio files for distribution (from the audio library)
+    // Path: audio/{filename}
+    match /audio/{filename} {
+      // Allow authenticated users to read audio files
+      allow read: if isAuthenticated();
+
+      // Allow authenticated users to upload audio files
+      // Must be audio file and under size limit
+      allow write: if isAuthenticated()
+                   && isAudioFile()
+                   && isValidSize();
+
+      // Allow delete by authenticated users
+      allow delete: if isAuthenticated();
+    }
+
+    // Deny all other paths by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
