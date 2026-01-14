@@ -261,7 +261,7 @@ export default function DevicesPage() {
           volume: 50,
           linkedSpeakerIds: [],
           isOnline: true,
-          lastSeen: new Date().toISOString(),
+          lastSeen: new Date(),
         });
       }
 

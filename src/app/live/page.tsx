@@ -125,13 +125,11 @@ export default function LiveBroadcastPage() {
   };
 
   const toggleDevice = (deviceId: string) => {
-    setSelectedDevices((prev: string[]) => {
-      const newDevices = prev.includes(deviceId)
-        ? prev.filter((id) => id !== deviceId)
-        : [...prev, deviceId];
-      console.log('[Live] Device selection changed:', newDevices);
-      return newDevices;
-    });
+    const newDevices = selectedDevices.includes(deviceId)
+      ? selectedDevices.filter((id) => id !== deviceId)
+      : [...selectedDevices, deviceId];
+    console.log('[Live] Device selection changed:', newDevices);
+    setSelectedDevices(newDevices);
   };
 
   const selectAllDevices = () => {

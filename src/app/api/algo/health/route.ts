@@ -71,7 +71,7 @@ async function checkDeviceHealth(
 
       // Try to get a simple setting (like device info)
       // This will fail if auth is wrong
-      await client.getSetting(["info.product"]);
+      await client.getSetting("info.product");
 
       // Auth is valid!
       return {

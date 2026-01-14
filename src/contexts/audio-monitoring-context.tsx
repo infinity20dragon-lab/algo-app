@@ -18,8 +18,8 @@ const debugLog = (...args: any[]) => {
   }
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let lamejs: any = null;
+// Web Worker for MP3 encoding
+let mp3Worker: Worker | null = null;
 
 export interface AudioLogEntry {
   timestamp: string;
@@ -93,85 +93,85 @@ interface AudioMonitoringContextType {
 
 const AudioMonitoringContext = createContext<AudioMonitoringContextType | null>(null);
 
-// Helper function to convert audio blob to MP3
+// Helper function to convert audio blob to MP3 using Web Worker
 async function convertToMp3(audioBlob: Blob): Promise<Blob> {
-  // Dynamically import lamejs to avoid SSR/Turbopack issues
-  if (!lamejs) {
-    // @ts-expect-error - lamejs doesn't have type declarations
-    const module = await import('lamejs');
-    lamejs = module.default || module;
-  }
+  console.log('[MP3 Convert] Starting conversion, blob size:', audioBlob.size, 'type:', audioBlob.type);
 
   // Decode the audio blob to an AudioBuffer
   const arrayBuffer = await audioBlob.arrayBuffer();
-  const audioContext = new AudioContext();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  console.log('[MP3 Convert] ArrayBuffer size:', arrayBuffer.byteLength);
 
-  // Get audio data
+  const audioContext = new AudioContext();
+  console.log('[MP3 Convert] AudioContext created, decoding...');
+
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  console.log('[MP3 Convert] Decoded - channels:', audioBuffer.numberOfChannels, 'sampleRate:', audioBuffer.sampleRate, 'duration:', audioBuffer.duration);
+
+  // Get audio data as Float32Arrays
   const numberOfChannels = audioBuffer.numberOfChannels;
   const sampleRate = audioBuffer.sampleRate;
-  const samples = audioBuffer.length;
 
-  // Convert to mono if stereo (simpler encoding)
-  let leftChannel: Float32Array;
-  let rightChannel: Float32Array | null = null;
-
-  if (numberOfChannels === 1) {
-    leftChannel = audioBuffer.getChannelData(0);
-  } else {
-    leftChannel = audioBuffer.getChannelData(0);
-    rightChannel = audioBuffer.getChannelData(1);
-  }
-
-  // Convert Float32Array to Int16Array (required by lamejs)
-  const convertToInt16 = (float32Array: Float32Array): Int16Array => {
-    const int16Array = new Int16Array(float32Array.length);
-    for (let i = 0; i < float32Array.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32Array[i]));
-      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    return int16Array;
-  };
-
-  const leftInt16 = convertToInt16(leftChannel);
-  const rightInt16 = rightChannel ? convertToInt16(rightChannel) : null;
-
-  // Create MP3 encoder
-  const mp3Encoder = new lamejs.Mp3Encoder(numberOfChannels, sampleRate, 128);
-  const mp3Data: ArrayBuffer[] = [];
-
-  // Encode in chunks
-  const chunkSize = 1152;
-  for (let i = 0; i < samples; i += chunkSize) {
-    const leftChunk = leftInt16.subarray(i, i + chunkSize);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let mp3buf: any;
-
-    if (numberOfChannels === 1) {
-      mp3buf = mp3Encoder.encodeBuffer(leftChunk);
-    } else {
-      const rightChunk = rightInt16!.subarray(i, i + chunkSize);
-      mp3buf = mp3Encoder.encodeBuffer(leftChunk, rightChunk);
-    }
-
-    if (mp3buf.length > 0) {
-      // Convert to regular array buffer
-      mp3Data.push(new Uint8Array(mp3buf).buffer);
-    }
-  }
-
-  // Flush the encoder
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mp3End: any = mp3Encoder.flush();
-  if (mp3End.length > 0) {
-    mp3Data.push(new Uint8Array(mp3End).buffer);
+  const audioData: Float32Array[] = [];
+  for (let i = 0; i < numberOfChannels; i++) {
+    audioData.push(audioBuffer.getChannelData(i));
   }
 
   // Close the audio context
   await audioContext.close();
 
-  // Create MP3 blob from array buffers
-  return new Blob(mp3Data, { type: 'audio/mp3' });
+  // Initialize Web Worker if not already done
+  if (!mp3Worker) {
+    console.log('[MP3 Convert] Creating Web Worker...');
+    mp3Worker = new Worker('/mp3-encoder-worker.js');
+  }
+
+  // Encode using Web Worker
+  return new Promise((resolve, reject) => {
+    if (!mp3Worker) {
+      reject(new Error('Web Worker not available'));
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      reject(new Error('MP3 encoding timeout'));
+    }, 30000); // 30 second timeout
+
+    mp3Worker.onmessage = (e) => {
+      clearTimeout(timeoutId);
+
+      if (e.data.error) {
+        console.error('[MP3 Convert] Worker error:', e.data.error);
+        reject(new Error(e.data.error));
+        return;
+      }
+
+      if (e.data.progress !== undefined) {
+        // Progress update - ignore for now
+        return;
+      }
+
+      if (e.data.success && e.data.mp3Data) {
+        console.log('[MP3 Convert] Worker success, output size:', e.data.mp3Data.byteLength);
+        const mp3Blob = new Blob([e.data.mp3Data], { type: 'audio/mp3' });
+        resolve(mp3Blob);
+      }
+    };
+
+    mp3Worker.onerror = (error) => {
+      clearTimeout(timeoutId);
+      console.error('[MP3 Convert] Worker error:', error);
+      reject(new Error('MP3 Worker error: ' + error.message));
+    };
+
+    // Send audio data to worker
+    console.log('[MP3 Convert] Sending to worker...');
+    mp3Worker.postMessage({
+      cmd: 'encode',
+      audioData: audioData,
+      sampleRate: sampleRate,
+      bitRate: 128
+    });
+  });
 }
 
 // LocalStorage keys
@@ -340,13 +340,13 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
             let fileExtension: string;
 
             try {
-              debugLog(`[Recording] Converting ${webmBlob.size} bytes from WebM to MP3...`);
+              console.log(`[Recording] Converting ${webmBlob.size} bytes from WebM to MP3...`);
               finalBlob = await convertToMp3(webmBlob);
               fileExtension = 'mp3';
-              debugLog(`[Recording] Converted to MP3: ${finalBlob.size} bytes`);
+              console.log(`[Recording] Converted to MP3: ${finalBlob.size} bytes`);
             } catch (conversionError) {
               // Fallback to WebM if MP3 conversion fails
-              console.warn('[Recording] MP3 conversion failed, falling back to WebM:', conversionError);
+              console.error('[Recording] MP3 conversion failed, falling back to WebM:', conversionError);
               finalBlob = webmBlob;
               fileExtension = 'webm';
             }
