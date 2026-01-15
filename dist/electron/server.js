@@ -19,6 +19,12 @@ async function startNextServer() {
     const dev = !isPackaged;
     console.log('[Server] Is packaged:', isPackaged);
     console.log('[Server] Dev mode:', dev);
+    // In dev mode (npm run electron:dev), Next.js is already running via concurrently
+    // So we just skip starting the server - Electron will connect to the existing dev server
+    if (dev && process.env.NODE_ENV === 'development') {
+        console.log('[Server] Dev mode detected - using existing Next.js dev server');
+        return Promise.resolve();
+    }
     // In production, app files are in resources/app (no asar)
     const appPath = dev
         ? process.cwd()

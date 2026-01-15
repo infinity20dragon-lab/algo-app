@@ -10,7 +10,8 @@ export interface AlgoDevice {
   authMethod: AlgoAuthMethod;
   apiPassword: string;
   zone: string;
-  volume: number;
+  volume: number; // Default/initial volume
+  maxVolume?: number; // Maximum volume this speaker can reach (0-100, default 100)
   isOnline: boolean;
   authValid?: boolean; // true = auth works, false = wrong password/auth
   lastSeen: Date | null;

@@ -89,6 +89,11 @@ interface AudioMonitoringContextType {
   // Recording
   recordingEnabled: boolean;
   setRecordingEnabled: (enabled: boolean) => void;
+
+  // Emergency Controls
+  emergencyKillAll: () => Promise<void>;
+  emergencyEnableAll: () => Promise<void>;
+  controlSingleSpeaker: (speakerId: string, enable: boolean) => Promise<void>;
 }
 
 const AudioMonitoringContext = createContext<AudioMonitoringContextType | null>(null);
@@ -614,6 +619,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   }, [targetVolume, speakersEnabled]);
 
   // Set volume on all linked speakers (8180s)
+  // volumePercent is the "ramp percentage" (0-100) which gets applied to each speaker's maxVolume
   const setDevicesVolume = useCallback(async (volumePercent: number) => {
     const linkedSpeakerIds = new Set<string>();
 
@@ -626,18 +632,23 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
     }
 
-    // Convert 0-100% to 0-10 scale, then to dB
-    // Algo expects: 0=-30dB, 1=-27dB, 2=-24dB, ... 10=0dB
-    // Formula: dB = (level - 10) * 3
-    const volumeScale = Math.round((volumePercent / 100) * 10);
-    const volumeDb = (volumeScale - 10) * 3;
-    const volumeDbString = volumeDb === 0 ? "0dB" : `${volumeDb}dB`;
-
-    debugLog(`[AudioMonitoring] Setting volume: ${volumePercent}% → level ${volumeScale} → ${volumeDbString}`);
-
     const volumePromises = Array.from(linkedSpeakerIds).map(async (speakerId) => {
       const speaker = devices.find(d => d.id === speakerId);
       if (!speaker) return;
+
+      // Calculate this speaker's actual volume based on its individual maxVolume
+      // If volumePercent is 80% and speaker.maxVolume is 70%, actual = 80% of 70% = 56%
+      const speakerMaxVolume = speaker.maxVolume ?? 100;
+      const actualVolume = (volumePercent / 100) * speakerMaxVolume;
+
+      // Convert 0-100% to 0-10 scale, then to dB
+      // Algo expects: 0=-30dB, 1=-27dB, 2=-24dB, ... 10=0dB
+      // Formula: dB = (level - 10) * 3
+      const volumeScale = Math.round((actualVolume / 100) * 10);
+      const volumeDb = (volumeScale - 10) * 3;
+      const volumeDbString = volumeDb === 0 ? "0dB" : `${volumeDb}dB`;
+
+      debugLog(`[AudioMonitoring] Setting ${speaker.name} volume: ${volumePercent}% of max ${speakerMaxVolume}% = ${actualVolume.toFixed(0)}% → ${volumeDbString}`);
 
       try {
         await fetch("/api/algo/settings", {
@@ -789,6 +800,121 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     }
   }, [selectedDevices, devices]);
 
+  // Emergency Controls
+  const emergencyKillAll = useCallback(async () => {
+    debugLog('[AudioMonitoring] EMERGENCY: Killing all speakers');
+    addLog({
+      type: "speakers_disabled",
+      message: "EMERGENCY KILL: Disabling all speakers immediately",
+    });
+
+    // Get all linked speakers
+    const linkedSpeakerIds = new Set<string>();
+    for (const deviceId of selectedDevices) {
+      const device = devices.find(d => d.id === deviceId);
+      if (!device) continue;
+      if (device.type === "8301" && device.linkedSpeakerIds) {
+        device.linkedSpeakerIds.forEach(id => linkedSpeakerIds.add(id));
+      }
+    }
+
+    // Set all speakers to volume 0 and disable multicast
+    const speakers = Array.from(linkedSpeakerIds).map(id => devices.find(d => d.id === id)).filter(Boolean);
+
+    // First mute all
+    await Promise.all(speakers.map(async (speaker) => {
+      if (!speaker) return;
+      try {
+        await fetch("/api/algo/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ipAddress: speaker.ipAddress,
+            password: speaker.apiPassword,
+            authMethod: speaker.authMethod,
+            settings: { "audio.page.vol": "-30dB" },
+          }),
+        });
+      } catch (error) {
+        console.error(`Failed to mute ${speaker.name}:`, error);
+      }
+    }));
+
+    // Then disable multicast
+    await controlSpeakers(false);
+
+    // Reset state
+    setSpeakersEnabled(false);
+    setAudioDetected(false);
+    currentVolumeRef.current = 0;
+    if (volumeRampIntervalRef.current) {
+      clearInterval(volumeRampIntervalRef.current);
+      volumeRampIntervalRef.current = null;
+    }
+  }, [selectedDevices, devices, controlSpeakers, addLog]);
+
+  const emergencyEnableAll = useCallback(async () => {
+    debugLog('[AudioMonitoring] EMERGENCY: Enabling all speakers');
+    addLog({
+      type: "speakers_enabled",
+      message: "EMERGENCY ENABLE: Enabling all speakers at target volume",
+    });
+
+    // Enable multicast on all speakers
+    await controlSpeakers(true);
+    setSpeakersEnabled(true);
+
+    // Set to target volume
+    await setDevicesVolume(targetVolume);
+    currentVolumeRef.current = targetVolume;
+  }, [controlSpeakers, setDevicesVolume, targetVolume, addLog]);
+
+  const controlSingleSpeaker = useCallback(async (speakerId: string, enable: boolean) => {
+    const speaker = devices.find(d => d.id === speakerId);
+    if (!speaker) {
+      console.error(`Speaker ${speakerId} not found`);
+      return;
+    }
+
+    debugLog(`[AudioMonitoring] ${enable ? 'Enabling' : 'Disabling'} single speaker: ${speaker.name}`);
+    addLog({
+      type: enable ? "speakers_enabled" : "speakers_disabled",
+      message: `${enable ? 'Enabled' : 'Disabled'} speaker: ${speaker.name}`,
+    });
+
+    try {
+      // Control multicast
+      await fetch("/api/algo/speakers/mcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          speakers: [{
+            ipAddress: speaker.ipAddress,
+            password: speaker.apiPassword,
+            authMethod: speaker.authMethod,
+          }],
+          enable,
+        }),
+      });
+
+      // If disabling, also mute
+      if (!enable) {
+        await fetch("/api/algo/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ipAddress: speaker.ipAddress,
+            password: speaker.apiPassword,
+            authMethod: speaker.authMethod,
+            settings: { "audio.page.vol": "-30dB" },
+          }),
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to control speaker ${speaker.name}:`, error);
+    }
+  }, [devices, addLog]);
+
   // Audio activity detection with sustained audio requirement
   useEffect(() => {
     if (!isCapturing) {
@@ -805,44 +931,48 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       // Audio is above threshold
 
       // Start tracking sustained audio if not already tracking
-      if (!sustainedAudioStartRef.current && !speakersEnabled) {
+      // Note: speakersEnabled is always true during monitoring, use audioDetected instead
+      if (!sustainedAudioStartRef.current && !audioDetected) {
         sustainedAudioStartRef.current = Date.now();
         debugLog(`[AudioMonitoring] Audio above threshold (${audioLevel.toFixed(1)}%), starting ${sustainDuration}ms sustain timer`);
       }
 
       // Check if audio has been sustained long enough
-      if (sustainedAudioStartRef.current && !speakersEnabled && !controllingSpakersRef.current) {
+      // Note: speakersEnabled is always true during monitoring (always-on mode)
+      // We use audioDetected to track if we're actively playing audio
+      if (sustainedAudioStartRef.current && !audioDetected && !controllingSpakersRef.current) {
         const sustainedFor = Date.now() - sustainedAudioStartRef.current;
 
         if (sustainedFor >= sustainDuration) {
-          // Audio has been sustained - enable speakers!
+          // Audio has been sustained - ramp volume up!
+          // CRITICAL: Speakers are already listening (multicast enabled at start)
+          // We only need to ramp up volume - this is INSTANT compared to enabling multicast
           sustainedAudioStartRef.current = null;
           setAudioDetected(true);
           controllingSpakersRef.current = true;
-          setSpeakersEnabled(true);
-          speakersEnabledTimeRef.current = Date.now(); // Track when speakers were enabled
+          speakersEnabledTimeRef.current = Date.now(); // Track when audio started playing
 
           addLog({
             type: "audio_detected",
             audioLevel,
             audioThreshold,
-            message: `Audio sustained ${sustainDuration}ms at ${audioLevel.toFixed(1)}% - enabling speakers`,
+            message: `Audio sustained ${sustainDuration}ms at ${audioLevel.toFixed(1)}% - ramping volume (speakers already listening)`,
           });
 
           addLog({
-            type: "speakers_enabled",
+            type: "volume_change",
             audioLevel,
             speakersEnabled: true,
             volume: targetVolume,
-            message: `Speakers enabled - ramping to ${targetVolume}%`,
+            message: `Volume ramping to ${targetVolume}% (instant - no multicast enable delay)`,
           });
 
           (async () => {
             // Start recording the audio
             await startRecording();
 
-            await setDevicesVolume(0);
-            await controlSpeakers(true);
+            // NO controlSpeakers(true) needed - speakers already listening!
+            // Just ramp the volume - this is much faster
             startVolumeRamp();
             controllingSpakersRef.current = false;
           })();
@@ -864,23 +994,26 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         sustainedAudioStartRef.current = null;
       }
 
-      // Start disable countdown if speakers are on
-      if (audioDetected && speakersEnabled) {
+      // Start mute countdown if audio was playing
+      // Note: We DON'T disable multicast - speakers stay listening (always-on mode)
+      // We only mute the volume so speakers are ready for the next audio burst
+      if (audioDetected) {
         if (!audioDetectionTimeoutRef.current) {
           addLog({
             type: "audio_silent",
             audioLevel,
             audioThreshold,
-            message: `Audio below threshold: ${audioLevel.toFixed(1)}% - starting ${disableDelay/1000}s countdown`,
+            message: `Audio below threshold: ${audioLevel.toFixed(1)}% - starting ${disableDelay/1000}s mute countdown`,
           });
 
           audioDetectionTimeoutRef.current = setTimeout(() => {
             if (!controllingSpakersRef.current) {
               controllingSpakersRef.current = true;
-              setSpeakersEnabled(false);
-              setAudioDetected(false);
+              // DON'T disable speakers - keep them listening!
+              // setSpeakersEnabled(false); // REMOVED - speakers stay on
+              setAudioDetected(false); // Just mark audio as not active
 
-              // Calculate how long speakers were active
+              // Calculate how long audio was playing
               const duration = speakersEnabledTimeRef.current
                 ? ((Date.now() - speakersEnabledTimeRef.current) / 1000).toFixed(1)
                 : '?';
@@ -892,15 +1025,16 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
                 // Log with recording URL if available
                 addLog({
-                  type: "speakers_disabled",
-                  speakersEnabled: false,
-                  message: `Speakers disabled after ${disableDelay/1000}s of silence (total audio: ${duration}s)${recordingUrl ? ' 🎙️ Recording saved' : ''}`,
+                  type: "volume_change",
+                  speakersEnabled: true, // Speakers STAY enabled
+                  volume: 0,
+                  message: `Volume muted after ${disableDelay/1000}s of silence (audio duration: ${duration}s) - speakers still listening${recordingUrl ? ' 🎙️ Recording saved' : ''}`,
                   recordingUrl: recordingUrl || undefined,
                 });
 
                 stopVolumeRamp();
                 await setDevicesVolume(0);
-                await controlSpeakers(false);
+                // NO controlSpeakers(false) - keep listening for next audio!
                 controllingSpakersRef.current = false;
               })();
             }
@@ -911,20 +1045,36 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     }
   }, [audioLevel, isCapturing, audioDetected, speakersEnabled, audioThreshold, sustainDuration, disableDelay, controlSpeakers, setDevicesVolume, startVolumeRamp, stopVolumeRamp, targetVolume, addLog, startRecording, stopRecordingAndUpload]);
 
-  const startMonitoring = useCallback((inputDevice?: string) => {
+  const startMonitoring = useCallback(async (inputDevice?: string) => {
     debugLog('[AudioMonitoring] Starting monitoring', inputDevice);
     addLog({
       type: "audio_detected",
       audioThreshold,
       message: `Monitoring started with threshold: ${audioThreshold}%`,
     });
+
+    // CRITICAL FIX: Enable multicast on speakers IMMEDIATELY at volume 0
+    // This keeps speakers always listening, so short audio bursts aren't missed
+    // Only volume will change when audio is detected (much faster than enabling multicast)
+    debugLog('[AudioMonitoring] Enabling multicast on all speakers (always-on mode)');
+    await setDevicesVolume(0); // Muted initially
+    await controlSpeakers(true); // Enable multicast immediately
+    setSpeakersEnabled(true); // Mark speakers as enabled (always on during monitoring)
+
+    addLog({
+      type: "speakers_enabled",
+      speakersEnabled: true,
+      volume: 0,
+      message: `Speakers enabled in always-on mode (muted) - ready for instant response`,
+    });
+
     startCapture(inputDevice);
-  }, [startCapture, audioThreshold, addLog]);
+  }, [startCapture, audioThreshold, addLog, setDevicesVolume, controlSpeakers]);
 
   const stopMonitoring = useCallback(async () => {
     debugLog('[AudioMonitoring] Stopping monitoring');
 
-    // Calculate duration if speakers were on
+    // Calculate duration if audio was playing
     const duration = speakersEnabledTimeRef.current
       ? ((Date.now() - speakersEnabledTimeRef.current) / 1000).toFixed(1)
       : null;
@@ -933,20 +1083,30 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     addLog({
       type: "speakers_disabled",
       message: duration
-        ? `Monitoring stopped (speakers were active for ${duration}s)`
-        : 'Monitoring stopped',
+        ? `Monitoring stopped (audio was playing for ${duration}s)`
+        : 'Monitoring stopped - disabling speakers',
     });
 
     stopCapture();
     stopVolumeRamp();
 
-    if (speakersEnabled && !controllingSpakersRef.current) {
+    // Clear any pending audio detection timeout
+    if (audioDetectionTimeoutRef.current) {
+      clearTimeout(audioDetectionTimeoutRef.current);
+      audioDetectionTimeoutRef.current = null;
+    }
+
+    // Always disable multicast when monitoring stops (cleanup always-on mode)
+    if (!controllingSpakersRef.current) {
       controllingSpakersRef.current = true;
       setSpeakersEnabled(false);
+      setAudioDetected(false);
+      await setDevicesVolume(0);
       await controlSpeakers(false);
       controllingSpakersRef.current = false;
+      debugLog('[AudioMonitoring] Multicast disabled - speakers no longer listening');
     }
-  }, [stopCapture, stopVolumeRamp, speakersEnabled, controlSpeakers, addLog]);
+  }, [stopCapture, stopVolumeRamp, controlSpeakers, setDevicesVolume, addLog]);
 
   const setVolume = useCallback((vol: number) => {
     setVolumeState(vol);
@@ -1067,6 +1227,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setLoggingEnabled,
         recordingEnabled,
         setRecordingEnabled,
+        emergencyKillAll,
+        emergencyEnableAll,
+        controlSingleSpeaker,
       }}
     >
       {children}

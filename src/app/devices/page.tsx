@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2, Link2, Search, Activity } from "lucide-react";
+import { Plus, Pencil, Trash2, Play, RefreshCw, X, Volume2, Link2, Search, Activity, Speaker } from "lucide-react";
 import { getDevices, addDevice, updateDevice, deleteDevice } from "@/lib/firebase/firestore";
 import type { AlgoDevice, AlgoDeviceType, AlgoAuthMethod } from "@/lib/algo/types";
 import { formatDate, isValidIpAddress } from "@/lib/utils";
@@ -27,6 +27,7 @@ export default function DevicesPage() {
     apiPassword: "algo",
     zone: "",
     volume: 50,
+    maxVolume: 100, // Per-speaker max volume (0-100)
     linkedSpeakerIds: [] as string[],
   });
   const [formError, setFormError] = useState("");
@@ -79,6 +80,7 @@ export default function DevicesPage() {
       apiPassword: "algo",
       zone: "",
       volume: 50,
+      maxVolume: 100,
       linkedSpeakerIds: [],
     });
     setFormError("");
@@ -99,6 +101,7 @@ export default function DevicesPage() {
       apiPassword: device.apiPassword,
       zone: device.zone,
       volume: device.volume,
+      maxVolume: device.maxVolume ?? 100, // Default to 100 if not set
       linkedSpeakerIds: device.linkedSpeakerIds || [],
     });
     setEditingDevice(device);
@@ -321,12 +324,17 @@ export default function DevicesPage() {
       setLastStatusCheck(new Date());
 
       // Update Firestore with new status (in background, don't await)
+      // Note: Firebase doesn't allow undefined values, so we filter them out
       updatedDevices.forEach(device => {
-        updateDevice(device.id, {
+        const updateData: Record<string, unknown> = {
           isOnline: device.isOnline,
-          authValid: device.authValid,
           lastSeen: device.lastSeen,
-        }).catch(err => console.error(`Failed to update device ${device.id}:`, err));
+        };
+        // Only include authValid if it's defined (not undefined)
+        if (device.authValid !== undefined) {
+          updateData.authValid = device.authValid;
+        }
+        updateDevice(device.id, updateData).catch(err => console.error(`Failed to update device ${device.id}:`, err));
       });
 
     } catch (error) {
@@ -342,11 +350,11 @@ export default function DevicesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Devices</h1>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]">Output & Speakers</h1>
             <div className="flex items-center gap-3">
-              <p className="text-gray-500">Manage your Algo IP endpoints</p>
+              <p className="text-[var(--text-secondary)] text-sm">Manage your Algo IP endpoints</p>
               {lastStatusCheck && (
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-[var(--text-muted)]">
                   Last checked: {lastStatusCheck.toLocaleTimeString()}
                 </span>
               )}
@@ -378,7 +386,7 @@ export default function DevicesPage() {
 
         {/* Add/Edit Form Modal */}
         {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
             <Card className="w-full max-w-lg">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -387,7 +395,7 @@ export default function DevicesPage() {
                   </CardTitle>
                   <button
                     onClick={() => setShowForm(false)}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   >
                     <X className="h-5 w-5" />
                   </button>
@@ -401,7 +409,7 @@ export default function DevicesPage() {
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {formError && (
-                    <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+                    <div className="rounded-lg bg-[var(--accent-red)]/10 border border-[var(--accent-red)]/30 p-3 text-sm text-[var(--accent-red)]">
                       {formError}
                     </div>
                   )}
@@ -513,6 +521,32 @@ export default function DevicesPage() {
                     />
                   </div>
 
+                  {/* Max Volume - only for speakers, not paging devices */}
+                  {formData.type !== "8301" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="maxVolume" className="flex items-center gap-2">
+                        <Volume2 className="h-4 w-4 text-[var(--accent-orange)]" />
+                        Max Volume: {formData.maxVolume}%
+                      </Label>
+                      <Slider
+                        id="maxVolume"
+                        min={0}
+                        max={100}
+                        value={formData.maxVolume}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            maxVolume: parseInt(e.target.value),
+                          })
+                        }
+                        showValue
+                      />
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Maximum volume this speaker can reach during alerts (e.g., set lower for lobby)
+                      </p>
+                    </div>
+                  )}
+
                   {/* Speaker Linking (only for 8301 paging devices) */}
                   {formData.type === "8301" && (
                     <div className="space-y-2">
@@ -520,19 +554,19 @@ export default function DevicesPage() {
                         <Link2 className="h-4 w-4" />
                         Linked Speakers
                       </Label>
-                      <p className="text-xs text-gray-500 mb-2">
+                      <p className="text-xs text-[var(--text-muted)] mb-2">
                         Speakers will auto-enable when playing and auto-disable when done (no white noise)
                       </p>
-                      <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-2">
+                      <div className="max-h-40 overflow-y-auto border border-[var(--border-color)] rounded-lg p-2 space-y-2 bg-[var(--bg-secondary)]">
                         {devices.filter(d => d.type !== "8301" && d.id !== editingDevice?.id).length === 0 ? (
-                          <p className="text-sm text-gray-400 py-2 text-center">
+                          <p className="text-sm text-[var(--text-muted)] py-2 text-center">
                             No speakers available. Add speakers first.
                           </p>
                         ) : (
                           devices
                             .filter(d => d.type !== "8301" && d.id !== editingDevice?.id)
                             .map(speaker => (
-                              <label key={speaker.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                              <label key={speaker.id} className="flex items-center gap-2 cursor-pointer hover:bg-[var(--bg-tertiary)] p-2 rounded-lg transition-colors">
                                 <input
                                   type="checkbox"
                                   checked={formData.linkedSpeakerIds.includes(speaker.id)}
@@ -549,10 +583,10 @@ export default function DevicesPage() {
                                       });
                                     }
                                   }}
-                                  className="rounded border-gray-300"
+                                  className="rounded border-[var(--border-color)] bg-[var(--bg-tertiary)]"
                                 />
-                                <span className="text-sm">{speaker.name}</span>
-                                <span className="text-xs text-gray-400">({speaker.ipAddress})</span>
+                                <span className="text-sm text-[var(--text-primary)]">{speaker.name}</span>
+                                <span className="text-xs text-[var(--text-muted)]">({speaker.ipAddress})</span>
                               </label>
                             ))
                         )}
@@ -580,30 +614,37 @@ export default function DevicesPage() {
 
         {/* Network Scan Modal */}
         {showScanModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
             <Card className="w-full max-w-2xl max-h-[80vh] flex flex-col">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle>Network Scanner</CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[var(--accent-blue)]/15">
+                      <Search className="h-5 w-5 text-[var(--accent-blue)]" />
+                    </div>
+                    <div>
+                      <CardTitle>Network Scanner</CardTitle>
+                      <CardDescription>
+                        Automatically discover Algo devices on your network
+                      </CardDescription>
+                    </div>
+                  </div>
                   <button
                     onClick={() => setShowScanModal(false)}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                     disabled={scanning}
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <CardDescription>
-                  Automatically discover Algo devices on your network
-                </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden flex flex-col">
                 {!scanning && discoveredDevices.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                    <div className="mb-4 rounded-full bg-blue-100 p-4">
-                      <Search className="h-8 w-8 text-blue-600" />
+                    <div className="mb-4 rounded-full bg-[var(--accent-blue)]/15 p-4">
+                      <Search className="h-8 w-8 text-[var(--accent-blue)]" />
                     </div>
-                    <h3 className="text-lg font-medium text-gray-900">
+                    <h3 className="text-lg font-medium text-[var(--text-primary)]">
                       Scan Your Network
                     </h3>
                     <div className="w-full max-w-md space-y-3">
@@ -615,7 +656,7 @@ export default function DevicesPage() {
                           value={networkRange}
                           onChange={(e) => setNetworkRange(e.target.value)}
                         />
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-[var(--text-muted)]">
                           Enter first 3 octets (e.g., "10.211.37") or leave blank to auto-detect
                         </p>
                       </div>
@@ -627,22 +668,22 @@ export default function DevicesPage() {
                   </div>
                 ) : scanning ? (
                   <div className="flex flex-col items-center justify-center py-12">
-                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mb-4" />
-                    <p className="text-gray-600">Scanning network for Algo devices...</p>
-                    <p className="text-sm text-gray-400 mt-2">
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent mb-4" />
+                    <p className="text-[var(--text-secondary)]">Scanning network for Algo devices...</p>
+                    <p className="text-sm text-[var(--text-muted)] mt-2">
                       Scanning {networkRange || 'auto-detected network'}.0/24
                     </p>
-                    <p className="text-sm text-gray-400">This may take 10-30 seconds</p>
+                    <p className="text-sm text-[var(--text-muted)]">This may take 10-30 seconds</p>
                   </div>
                 ) : discoveredDevices.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12">
-                    <div className="mb-4 rounded-full bg-gray-100 p-4">
-                      <Search className="h-8 w-8 text-gray-400" />
+                    <div className="mb-4 rounded-full bg-[var(--bg-tertiary)] p-4">
+                      <Search className="h-8 w-8 text-[var(--text-muted)]" />
                     </div>
-                    <h3 className="mb-2 text-lg font-medium text-gray-900">
+                    <h3 className="mb-2 text-lg font-medium text-[var(--text-primary)]">
                       No new devices found
                     </h3>
-                    <p className="text-center text-gray-500 mb-4">
+                    <p className="text-center text-[var(--text-muted)] mb-4">
                       All Algo devices on your network are already added, or no devices were detected.
                     </p>
                     <Button onClick={startNetworkScan} variant="outline">
@@ -653,36 +694,36 @@ export default function DevicesPage() {
                 ) : (
                   <>
                     <div className="mb-4">
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-[var(--text-secondary)]">
                         Found {discoveredDevices.length} device{discoveredDevices.length !== 1 ? 's' : ''}.
                         Select the devices you want to add:
                       </p>
                     </div>
-                    <div className="flex-1 overflow-y-auto border rounded-md divide-y">
+                    <div className="flex-1 overflow-y-auto border border-[var(--border-color)] rounded-lg divide-y divide-[var(--border-color)]">
                       {discoveredDevices.map((device) => (
                         <label
                           key={device.ipAddress}
-                          className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                          className="flex items-start gap-3 p-4 cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
                         >
                           <input
                             type="checkbox"
                             checked={selectedDiscoveredDevices.has(device.ipAddress)}
                             onChange={() => handleToggleDiscoveredDevice(device.ipAddress)}
-                            className="mt-1 rounded border-gray-300"
+                            className="mt-1 rounded border-[var(--border-color)] bg-[var(--bg-tertiary)]"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-gray-900">
+                              <span className="font-medium text-[var(--text-primary)]">
                                 {device.name || device.model}
                               </span>
                               <Badge variant="outline">{device.type.toUpperCase()}</Badge>
                             </div>
-                            <p className="text-sm text-gray-500">{device.ipAddress}</p>
+                            <p className="text-sm text-[var(--text-muted)]">{device.ipAddress}</p>
                           </div>
                         </label>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t">
+                    <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t border-[var(--border-color)]">
                       <Button variant="outline" onClick={startNetworkScan} disabled={saving}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Scan Again
@@ -725,35 +766,35 @@ export default function DevicesPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-6">
                   <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded-full bg-green-500"></div>
-                    <span className="text-sm font-medium text-gray-700">
+                    <div className="h-3 w-3 rounded-full bg-[var(--accent-green)]"></div>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">
                       {devices.filter(d => d.isOnline).length} Online
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded-full bg-red-500"></div>
-                    <span className="text-sm font-medium text-gray-700">
+                    <div className="h-3 w-3 rounded-full bg-[var(--accent-red)]"></div>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">
                       {devices.filter(d => !d.isOnline).length} Offline
                     </span>
                   </div>
                   {devices.filter(d => d.isOnline && d.authValid === false).length > 0 && (
                     <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
-                      <span className="text-sm font-medium text-yellow-700">
+                      <div className="h-3 w-3 rounded-full bg-[var(--accent-orange)]"></div>
+                      <span className="text-sm font-medium text-[var(--accent-orange)]">
                         {devices.filter(d => d.isOnline && d.authValid === false).length} Auth Issue{devices.filter(d => d.isOnline && d.authValid === false).length !== 1 ? 's' : ''}
                       </span>
                     </div>
                   )}
                   <div className="flex items-center gap-2">
-                    <Volume2 className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-500">
+                    <Volume2 className="h-4 w-4 text-[var(--text-muted)]" />
+                    <span className="text-sm text-[var(--text-muted)]">
                       {devices.length} Total Device{devices.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                 </div>
                 {checkingStatus && (
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
+                  <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent-blue)] border-t-transparent"></div>
                     <span>Checking status...</span>
                   </div>
                 )}
@@ -765,18 +806,18 @@ export default function DevicesPage() {
         {/* Devices List */}
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent" />
           </div>
         ) : devices.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="mb-4 rounded-full bg-gray-100 p-4">
-                <Volume2 className="h-8 w-8 text-gray-400" />
+              <div className="mb-4 rounded-full bg-[var(--bg-tertiary)] p-4">
+                <Speaker className="h-8 w-8 text-[var(--text-muted)]" />
               </div>
-              <h3 className="mb-2 text-lg font-medium text-gray-900">
+              <h3 className="mb-2 text-lg font-medium text-[var(--text-primary)]">
                 No devices yet
               </h3>
-              <p className="mb-4 text-center text-gray-500">
+              <p className="mb-4 text-center text-[var(--text-muted)]">
                 Add your first Algo device to get started
               </p>
               <Button onClick={openAddForm}>
@@ -794,29 +835,23 @@ export default function DevicesPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <CardTitle className="text-lg">{device.name}</CardTitle>
-                        <div className={`h-2 w-2 rounded-full ${device.isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <div className={`h-2 w-2 rounded-full ${device.isOnline ? 'bg-[var(--accent-green)]' : 'bg-[var(--accent-red)]'}`}></div>
                       </div>
                       <CardDescription>{device.ipAddress}</CardDescription>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <Badge
-                        variant={device.isOnline ? "success" : "secondary"}
-                        className={device.isOnline ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}
-                      >
+                      <Badge variant={device.isOnline ? "success" : "secondary"}>
                         {device.isOnline ? "Online" : "Offline"}
                       </Badge>
                       {device.isOnline && device.authValid === false && (
-                        <Badge
-                          variant="warning"
-                          className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs"
-                        >
+                        <Badge variant="warning" className="text-xs">
                           Auth Error
                         </Badge>
                       )}
                     </div>
                   </div>
                   {device.isOnline && device.authValid === false && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+                    <div className="bg-[var(--accent-orange)]/10 border border-[var(--accent-orange)]/30 rounded-lg p-3 text-sm text-[var(--accent-orange)]">
                       <strong>Authentication Failed:</strong> Wrong password or auth method. Please check device settings.
                     </div>
                   )}
@@ -828,19 +863,24 @@ export default function DevicesPage() {
                       <Badge variant="outline">{device.zone}</Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
                     <Volume2 className="h-4 w-4" />
-                    <span>Volume: {device.volume}%</span>
+                    <span>
+                      Volume: {device.volume}%
+                      {device.type !== "8301" && (
+                        <span className="text-[var(--accent-orange)]"> (max: {device.maxVolume ?? 100}%)</span>
+                      )}
+                    </span>
                   </div>
                   {device.type === "8301" && device.linkedSpeakerIds && device.linkedSpeakerIds.length > 0 && (
-                    <div className="flex items-center gap-2 text-sm text-blue-600">
+                    <div className="flex items-center gap-2 text-sm text-[var(--accent-blue)]">
                       <Link2 className="h-4 w-4" />
                       <span>
                         {device.linkedSpeakerIds.length} linked speaker{device.linkedSpeakerIds.length !== 1 ? "s" : ""}
                       </span>
                     </div>
                   )}
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-[var(--text-muted)]">
                     Last seen: {formatDate(device.lastSeen)}
                   </p>
                   <div className="flex gap-2 pt-2">

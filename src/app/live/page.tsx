@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -10,6 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { AudioLogViewer } from "@/components/audio-log-viewer";
+import { VUMeter, CircularVUMeter } from "@/components/vu-meter";
 import {
   Mic,
   MicOff,
@@ -19,6 +20,15 @@ import {
   Download,
   Upload,
   AlertCircle,
+  Volume2,
+  Settings2,
+  Speaker,
+  Clock,
+  Sun,
+  Moon,
+  Power,
+  PowerOff,
+  AlertTriangle,
 } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase/config";
@@ -26,7 +36,7 @@ import { useAudioCapture } from "@/hooks/useAudioCapture";
 import { useAudioMonitoring } from "@/contexts/audio-monitoring-context";
 import { getDevices, getAudioFiles, addAudioFile } from "@/lib/firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
-import type { AlgoDevice, AudioFile } from "@/lib/algo/types";
+import type { AudioFile } from "@/lib/algo/types";
 import { formatDuration } from "@/lib/utils";
 
 export default function LiveBroadcastPage() {
@@ -73,6 +83,9 @@ export default function LiveBroadcastPage() {
     setRecordingEnabled,
     devices: contextDevices,
     setDevices: setContextDevices,
+    emergencyKillAll,
+    emergencyEnableAll,
+    controlSingleSpeaker,
   } = useAudioMonitoring();
 
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
@@ -87,13 +100,10 @@ export default function LiveBroadcastPage() {
 
   const {
     isRecording,
-    isPaused,
     duration,
     error,
     startRecording,
     stopRecording,
-    pauseRecording,
-    resumeRecording,
     getInputDevices,
   } = useAudioCapture();
 
@@ -108,8 +118,6 @@ export default function LiveBroadcastPage() {
         getDevices(),
         getAudioFiles(),
       ]);
-
-      // Update context with devices
       setContextDevices(devicesData);
       setAudioFiles(audioData);
     } catch (error) {
@@ -148,7 +156,6 @@ export default function LiveBroadcastPage() {
 
     setBroadcasting(true);
 
-    // Play pre-tone on selected devices first
     if (preTone) {
       const audioFile = audioFiles.find((a) => a.id === preTone);
       if (audioFile) {
@@ -273,11 +280,15 @@ export default function LiveBroadcastPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Determine if currently in day or night mode
+  const currentHour = new Date().getHours();
+  const isDaytime = currentHour >= dayStartHour && currentHour < dayEndHour;
+
   if (loading) {
     return (
       <AppLayout>
         <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent" />
         </div>
       </AppLayout>
     );
@@ -287,42 +298,114 @@ export default function LiveBroadcastPage() {
     <AppLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Live Audio Monitoring</h1>
-          <p className="text-gray-500">
-            Automatically enable speakers when audio is detected, disable when silent
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]">Audio Input</h1>
+            <p className="text-[var(--text-secondary)] text-sm">
+              Monitor audio and automatically control speaker activation
+            </p>
+          </div>
+          {isCapturing && (
+            <div className="flex items-center gap-3">
+              <Badge variant={speakersEnabled ? "destructive" : "success"} className="px-3 py-1">
+                <div className={`w-2 h-2 rounded-full mr-2 ${speakersEnabled ? "bg-white animate-blink" : "bg-white"}`} />
+                {speakersEnabled ? "Broadcasting" : "Standby"}
+              </Badge>
+            </div>
+          )}
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 rounded-md bg-red-50 p-4 text-red-700">
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--accent-red)]/15 border border-[var(--accent-red)]/30 p-4 text-[var(--accent-red)]">
             <AlertCircle className="h-5 w-5" />
             <span>{error}</span>
           </div>
         )}
 
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left Column - Audio Input */}
+          {/* Left Column - Audio Input & VU Meter */}
           <div className="space-y-6 lg:col-span-2">
-            {/* Audio Capture */}
+            {/* Audio Level Display */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Audio Input</CardTitle>
-                <CardDescription>
-                  Capture audio from your microphone or line-in
-                </CardDescription>
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[var(--accent-blue)]/15">
+                      <Mic className="h-5 w-5 text-[var(--accent-blue)]" />
+                    </div>
+                    <CardTitle>Audio Monitor</CardTitle>
+                  </div>
+                  {!isCapturing ? (
+                    <Button
+                      onClick={() => {
+                        console.log('[Live] User clicked Start Monitoring');
+                        startMonitoring(selectedInputDevice || undefined);
+                      }}
+                    >
+                      <Mic className="mr-2 h-4 w-4" />
+                      Start Monitoring
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        console.log('[Live] User clicked Stop Monitoring');
+                        stopMonitoring();
+                      }}
+                    >
+                      <MicOff className="mr-2 h-4 w-4" />
+                      Stop
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* VU Meter */}
+                <div className="p-6 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-semibold text-[var(--text-secondary)]">Audio Level</span>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">
+                      {isCapturing ? `${audioLevel.toFixed(1)}%` : "-- %"}
+                    </span>
+                  </div>
+                  <VUMeter level={isCapturing ? audioLevel : 0} barCount={24} />
+
+                  {/* Threshold indicator */}
+                  <div className="mt-4 flex items-center gap-2">
+                    <div className="flex-1 h-1 bg-[var(--bg-tertiary)] rounded relative">
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-[var(--accent-orange)]"
+                        style={{ left: `${audioThreshold * 2}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Threshold: {audioThreshold}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Status Grid */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-center">
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${isCapturing ? "bg-[var(--accent-green)]" : "bg-[var(--text-muted)]"}`} />
+                    <div className="text-xs text-[var(--text-muted)]">Monitoring</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{isCapturing ? "Active" : "Off"}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-center">
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${audioDetected ? "bg-[var(--accent-orange)]" : "bg-[var(--text-muted)]"}`} />
+                    <div className="text-xs text-[var(--text-muted)]">Audio</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{audioDetected ? "Detected" : "Silent"}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-center">
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${speakersEnabled ? "bg-[var(--accent-red)] animate-blink" : "bg-[var(--text-muted)]"}`} />
+                    <div className="text-xs text-[var(--text-muted)]">Speakers</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{speakersEnabled ? "On" : "Off"}</div>
+                  </div>
+                </div>
+
                 {/* Input Device Selection */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Input Device</Label>
-                    {isCapturing && (
-                      <Badge variant="secondary" className="text-xs">
-                        Stop to change
-                      </Badge>
-                    )}
-                  </div>
+                  <Label>Input Device</Label>
                   <Select
                     value={selectedInputDevice}
                     onChange={(e) => setInputDevice(e.target.value)}
@@ -335,106 +418,133 @@ export default function LiveBroadcastPage() {
                       </option>
                     ))}
                   </Select>
-                  <p className="text-xs text-gray-500">
-                    Select microphone, line-in, or aux input
-                  </p>
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Audio Level Meter */}
-                <div className="space-y-2">
-                  <Label>Audio Level</Label>
-                  <div className="h-4 w-full overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className={`h-full transition-all duration-75 ${
-                        audioLevel > 80
-                          ? "bg-red-500"
-                          : audioLevel > 50
-                          ? "bg-yellow-500"
-                          : "bg-green-500"
-                      }`}
-                      style={{ width: `${audioLevel}%` }}
-                    />
+            {/* Emergency Controls */}
+            <Card className="border-[var(--accent-red)]/30">
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-[var(--accent-red)]/15">
+                    <AlertTriangle className="h-5 w-5 text-[var(--accent-red)]" />
                   </div>
-                  <p className="text-sm text-gray-500">
-                    {isCapturing ? `Level: ${audioLevel}%` : "Not capturing"}
-                  </p>
+                  <div>
+                    <CardTitle>Emergency Controls</CardTitle>
+                    <span className="text-xs text-[var(--text-muted)]">Manual speaker control</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Quick Actions */}
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="destructive"
+                    className="h-14"
+                    onClick={emergencyKillAll}
+                  >
+                    <PowerOff className="mr-2 h-5 w-5" />
+                    KILL ALL
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-14 border-[var(--accent-green)] text-[var(--accent-green)] hover:bg-[var(--accent-green)]/10"
+                    onClick={emergencyEnableAll}
+                  >
+                    <Power className="mr-2 h-5 w-5" />
+                    ENABLE ALL
+                  </Button>
                 </div>
 
-                {/* Input Gain Control */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Input Gain: {volume}%</Label>
+                {/* Individual Speaker Controls */}
+                {contextDevices.filter(d => d.type !== "8301").length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-[var(--text-muted)] text-xs uppercase tracking-wider">
+                      Individual Speakers
+                    </Label>
+                    <div className="grid gap-2 max-h-[200px] overflow-y-auto">
+                      {contextDevices
+                        .filter(d => d.type !== "8301")
+                        .map((speaker) => (
+                          <div
+                            key={speaker.id}
+                            className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]"
+                          >
+                            <div className="flex items-center gap-3">
+                              <Speaker className="h-4 w-4 text-[var(--text-muted)]" />
+                              <div>
+                                <p className="text-sm font-medium text-[var(--text-primary)]">
+                                  {speaker.name}
+                                </p>
+                                <p className="text-xs text-[var(--text-muted)]">
+                                  Max: {speaker.maxVolume ?? 100}%
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-[var(--accent-green)] border-[var(--accent-green)]/50 hover:bg-[var(--accent-green)]/10"
+                                onClick={() => controlSingleSpeaker(speaker.id, true)}
+                              >
+                                <Power className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-[var(--accent-red)] border-[var(--accent-red)]/50 hover:bg-[var(--accent-red)]/10"
+                                onClick={() => controlSingleSpeaker(speaker.id, false)}
+                              >
+                                <PowerOff className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Detection Settings */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-[var(--accent-orange)]/15">
+                    <Settings2 className="h-5 w-5 text-[var(--accent-orange)]" />
+                  </div>
+                  <div>
+                    <CardTitle>Detection Settings</CardTitle>
                     {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        Live adjustable
-                      </Badge>
+                      <span className="text-xs text-[var(--accent-green)]">Live adjustable</span>
                     )}
                   </div>
-                  <Slider
-                    min={0}
-                    max={200}
-                    value={volume}
-                    onChange={(e) => setVolume(parseInt(e.target.value))}
-                    showValue
-                  />
-                  <p className="text-sm text-gray-500">
-                    Adjust input volume (100% = normal, 200% = 2x boost)
-                  </p>
                 </div>
-
-                {/* Target Volume Control */}
-                <div className="space-y-2">
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Audio Threshold */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Target Speaker Volume: {targetVolume}% (Lv. {Math.round((targetVolume / 100) * 10)}/10)</Label>
-                    {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        Live adjustable
-                      </Badge>
-                    )}
-                  </div>
-                  <Slider
-                    min={0}
-                    max={100}
-                    value={targetVolume}
-                    onChange={(e) => setTargetVolume(parseInt(e.target.value))}
-                    showValue
-                  />
-                  <p className="text-sm text-gray-500">
-                    Target volume for speakers{speakersEnabled && " - ramp restarts when changed"}
-                  </p>
-                </div>
-
-                {/* Audio Threshold Control */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Audio Threshold: {audioThreshold}%</Label>
-                    {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        Live adjustable
-                      </Badge>
-                    )}
+                    <Label>Audio Threshold</Label>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">{audioThreshold}%</span>
                   </div>
                   <Slider
                     min={0}
                     max={50}
                     value={audioThreshold}
                     onChange={(e) => setAudioThreshold(parseInt(e.target.value))}
-                    showValue
                   />
-                  <p className="text-sm text-gray-500">
-                    Minimum audio level to trigger speaker activation (recommended: 15%)
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Minimum audio level to trigger speaker activation
                   </p>
                 </div>
 
-                {/* Sustain Duration Control */}
-                <div className="space-y-2">
+                {/* Sustain Duration */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Sustain Duration: {(sustainDuration / 1000).toFixed(1)}s</Label>
-                    {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        Live adjustable
-                      </Badge>
-                    )}
+                    <Label>Sustain Duration</Label>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">{(sustainDuration / 1000).toFixed(1)}s</span>
                   </div>
                   <Slider
                     min={0}
@@ -442,22 +552,17 @@ export default function LiveBroadcastPage() {
                     step={100}
                     value={sustainDuration}
                     onChange={(e) => setSustainDuration(parseInt(e.target.value))}
-                    showValue
                   />
-                  <p className="text-sm text-gray-500">
-                    Audio must stay above threshold for this long to trigger (0s = instant)
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Audio must stay above threshold for this duration to trigger
                   </p>
                 </div>
 
-                {/* Disable Delay Control */}
-                <div className="space-y-2">
+                {/* Disable Delay */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Disable Delay: {(disableDelay / 1000).toFixed(1)}s</Label>
-                    {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        Live adjustable
-                      </Badge>
-                    )}
+                    <Label>Disable Delay</Label>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">{(disableDelay / 1000).toFixed(0)}s</span>
                   </div>
                   <Slider
                     min={1000}
@@ -465,260 +570,214 @@ export default function LiveBroadcastPage() {
                     step={1000}
                     value={disableDelay}
                     onChange={(e) => setDisableDelay(parseInt(e.target.value))}
-                    showValue
                   />
-                  <p className="text-sm text-gray-500">
-                    Wait this long after silence before disabling speakers
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Wait before disabling speakers after silence
                   </p>
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Logging & Recording Settings */}
-                <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Label className="text-base font-medium">Logging & Recording</Label>
+            {/* Volume Settings */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-[var(--accent-green)]/15">
+                    <Volume2 className="h-5 w-5 text-[var(--accent-green)]" />
+                  </div>
+                  <div>
+                    <CardTitle>Volume Settings</CardTitle>
                     {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        All live adjustable
-                      </Badge>
+                      <span className="text-xs text-[var(--accent-green)]">Live adjustable</span>
                     )}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 mr-4">
-                      <Label className="text-sm">Activity Logging</Label>
-                      <p className="text-xs text-gray-500">
-                        {loggingEnabled
-                          ? "Log audio events to the activity viewer"
-                          : "Activity logging disabled"
-                        }
-                      </p>
-                    </div>
-                    <Switch
-                      checked={loggingEnabled}
-                      onCheckedChange={setLoggingEnabled}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 mr-4">
-                      <Label className="text-sm">Audio Recording</Label>
-                      <p className="text-xs text-gray-500">
-                        {recordingEnabled
-                          ? "Record and upload audio clips to Firebase (MP3)"
-                          : "Recording disabled (saves storage space)"
-                        }
-                      </p>
-                    </div>
-                    <Switch
-                      checked={recordingEnabled}
-                      onCheckedChange={setRecordingEnabled}
-                    />
                   </div>
                 </div>
-
-                {/* Volume Ramp Settings */}
-                <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Label className="text-base font-medium">Volume Ramp Settings</Label>
-                    {isCapturing && (
-                      <Badge variant="success" className="text-xs">
-                        All live adjustable
-                      </Badge>
-                    )}
-                  </div>
-
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Input Gain */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex-1 mr-4">
-                      <Label className="text-sm">Enable Volume Ramp</Label>
-                      <p className="text-xs text-gray-500">
-                        {rampEnabled
-                          ? "Gradually increase volume when speakers activate"
-                          : "Speakers instantly jump to target volume"
-                        }
-                      </p>
+                    <Label>Input Gain</Label>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">{volume}%</span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={200}
+                    value={volume}
+                    onChange={(e) => setVolume(parseInt(e.target.value))}
+                  />
+                </div>
+
+                {/* Target Volume */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Target Speaker Volume</Label>
+                    <span className="text-sm font-mono text-[var(--accent-blue)]">{targetVolume}% (Lv. {Math.round((targetVolume / 100) * 10)}/10)</span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={100}
+                    value={targetVolume}
+                    onChange={(e) => setTargetVolume(parseInt(e.target.value))}
+                  />
+                </div>
+
+                {/* Volume Ramp */}
+                <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Clock className="h-4 w-4 text-[var(--text-muted)]" />
+                      <Label className="!text-[var(--text-primary)]">Volume Ramp</Label>
                     </div>
-                    <Switch
-                      checked={rampEnabled}
-                      onCheckedChange={setRampEnabled}
-                    />
+                    <Switch checked={rampEnabled} onCheckedChange={setRampEnabled} />
                   </div>
 
                   {rampEnabled && (
                     <>
                       <div className="flex items-center justify-between">
-                        <div className="flex-1 mr-4">
-                          <Label className="text-sm">Day/Night Mode</Label>
-                          <p className="text-xs text-gray-500">
-                            {dayNightMode
-                              ? "Auto-switch between instant (day) and ramp (night)"
-                              : "Use manual ramp duration setting"
-                            }
-                          </p>
+                        <div className="flex items-center gap-2">
+                          {isDaytime ? <Sun className="h-4 w-4 text-[var(--accent-orange)]" /> : <Moon className="h-4 w-4 text-[var(--accent-purple)]" />}
+                          <Label className="!text-[var(--text-primary)]">Day/Night Mode</Label>
                         </div>
-                        <Switch
-                          checked={dayNightMode}
-                          onCheckedChange={setDayNightMode}
-                        />
+                        <Switch checked={dayNightMode} onCheckedChange={setDayNightMode} />
                       </div>
 
                       {dayNightMode ? (
-                        <>
-                          <div className="space-y-2">
-                            <Label className="text-sm">Day Hours (Instant Volume)</Label>
-                            <div className="flex items-center gap-2">
-                              <Select
-                                value={dayStartHour.toString()}
-                                onChange={(e) => setDayStartHour(parseInt(e.target.value))}
-                                className="flex-1"
-                              >
-                                {Array.from({ length: 24 }, (_, i) => (
-                                  <option key={i} value={i}>
-                                    {i.toString().padStart(2, '0')}:00
-                                  </option>
-                                ))}
-                              </Select>
-                              <span className="text-sm text-gray-500">to</span>
-                              <Select
-                                value={dayEndHour.toString()}
-                                onChange={(e) => setDayEndHour(parseInt(e.target.value))}
-                                className="flex-1"
-                              >
-                                {Array.from({ length: 24 }, (_, i) => (
-                                  <option key={i} value={i}>
-                                    {i.toString().padStart(2, '0')}:00
-                                  </option>
-                                ))}
-                              </Select>
-                            </div>
-                            <p className="text-xs text-gray-500">
-                              During these hours, speakers instantly jump to target volume
-                            </p>
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-[var(--text-muted)]">Day:</span>
+                            <Select
+                              value={dayStartHour.toString()}
+                              onChange={(e) => setDayStartHour(parseInt(e.target.value))}
+                              className="w-20"
+                            >
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <option key={i} value={i}>{i.toString().padStart(2, '0')}:00</option>
+                              ))}
+                            </Select>
+                            <span className="text-[var(--text-muted)]">to</span>
+                            <Select
+                              value={dayEndHour.toString()}
+                              onChange={(e) => setDayEndHour(parseInt(e.target.value))}
+                              className="w-20"
+                            >
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <option key={i} value={i}>{i.toString().padStart(2, '0')}:00</option>
+                              ))}
+                            </Select>
                           </div>
-
                           <div className="space-y-2">
-                            <Label className="text-sm">Night Ramp Duration: {nightRampDuration}s</Label>
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs">Night Ramp: {nightRampDuration}s</Label>
+                              <Badge variant={isDaytime ? "secondary" : "default"} className="text-xs">
+                                {isDaytime ? "Day (Instant)" : "Night (Ramp)"}
+                              </Badge>
+                            </div>
                             <Slider
                               min={0}
                               max={30}
                               value={nightRampDuration}
                               onChange={(e) => setNightRampDuration(parseInt(e.target.value))}
-                              showValue
                             />
-                            <p className="text-xs text-gray-500">
-                              Outside day hours, ramp volume over {nightRampDuration} seconds
-                            </p>
                           </div>
-                        </>
+                        </div>
                       ) : (
                         <div className="space-y-2">
-                          <Label className="text-sm">Ramp Duration: {rampDuration}s</Label>
+                          <Label className="text-xs">Ramp Duration: {rampDuration}s</Label>
                           <Slider
                             min={0}
                             max={30}
                             value={rampDuration}
                             onChange={(e) => setRampDuration(parseInt(e.target.value))}
-                            showValue
                           />
-                          <p className="text-xs text-gray-500">
-                            Always ramp volume over {rampDuration} seconds (0 = instant)
-                          </p>
                         </div>
                       )}
                     </>
                   )}
                 </div>
-
-                {/* Capture Controls */}
-                <div className="space-y-3">
-                  <div className="flex gap-3">
-                    {!isCapturing ? (
-                      <Button
-                        onClick={() => {
-                          console.log('[Live] User clicked Start Monitoring');
-                          startMonitoring(selectedInputDevice || undefined);
-                        }}
-                      >
-                        <Mic className="mr-2 h-4 w-4" />
-                        Start Monitoring
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          console.log('[Live] User clicked Stop Monitoring');
-                          stopMonitoring();
-                        }}
-                      >
-                        <MicOff className="mr-2 h-4 w-4" />
-                        Stop Monitoring
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Audio Detection Status */}
-                  {isCapturing && (
-                    <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600">Audio Activity:</span>
-                        <Badge variant={audioDetected ? "success" : "secondary"}>
-                          {audioDetected ? "Detected" : "Silent"}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600">Speakers:</span>
-                        <Badge variant={speakersEnabled ? "success" : "secondary"}>
-                          {speakersEnabled ? "Enabled" : "Disabled"}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </CardContent>
             </Card>
 
+            {/* Logging & Recording */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-[var(--accent-purple)]/15">
+                    <Radio className="h-5 w-5 text-[var(--accent-purple)]" />
+                  </div>
+                  <CardTitle>Logging & Recording</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                  <div>
+                    <Label className="!text-[var(--text-primary)]">Activity Logging</Label>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Log audio events to the activity viewer
+                    </p>
+                  </div>
+                  <Switch checked={loggingEnabled} onCheckedChange={setLoggingEnabled} />
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                  <div>
+                    <Label className="!text-[var(--text-primary)]">Audio Recording</Label>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {recordingEnabled ? "Record and upload audio clips (MP3)" : "Disabled to save storage"}
+                    </p>
+                  </div>
+                  <Switch checked={recordingEnabled} onCheckedChange={setRecordingEnabled} />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Devices & Broadcast */}
+          <div className="space-y-6">
             {/* Device Selection */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg">Target Devices</CardTitle>
-                    <CardDescription>
-                      Select devices to broadcast to
-                    </CardDescription>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[var(--accent-green)]/15">
+                      <Speaker className="h-5 w-5 text-[var(--accent-green)]" />
+                    </div>
+                    <CardTitle>Target Devices</CardTitle>
                   </div>
                   <Button variant="outline" size="sm" onClick={selectAllDevices}>
-                    {selectedDevices.length === contextDevices.length
-                      ? "Deselect All"
-                      : "Select All"}
+                    {selectedDevices.length === contextDevices.length ? "Deselect" : "Select All"}
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {contextDevices.length === 0 ? (
-                  <p className="text-sm text-gray-500">
-                    No devices available.{" "}
-                    <a href="/devices" className="text-blue-600 hover:underline">
-                      Add some first
-                    </a>
-                    .
-                  </p>
+                  <div className="text-center py-6">
+                    <Speaker className="mx-auto h-8 w-8 text-[var(--text-muted)] mb-2" />
+                    <p className="text-sm text-[var(--text-muted)]">
+                      No devices available.{" "}
+                      <a href="/devices" className="text-[var(--accent-blue)] hover:underline">
+                        Add some first
+                      </a>
+                      .
+                    </p>
+                  </div>
                 ) : (
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
                     {contextDevices.map((device) => (
                       <button
                         key={device.id}
                         onClick={() => toggleDevice(device.id)}
-                        className={`flex items-center gap-3 rounded-md border p-3 text-left transition-colors ${
+                        className={`flex items-center gap-3 w-full rounded-xl border p-3 text-left transition-all ${
                           selectedDevices.includes(device.id)
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-gray-300"
+                            ? "border-[var(--accent-blue)]/50 bg-[var(--accent-blue)]/10"
+                            : "border-[var(--border-color)] hover:border-[var(--border-active)] hover:bg-[var(--bg-tertiary)]"
                         }`}
                       >
                         <div
-                          className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
                             selectedDevices.includes(device.id)
-                              ? "border-blue-500 bg-blue-500"
-                              : "border-gray-300"
+                              ? "border-[var(--accent-blue)] bg-[var(--accent-blue)]"
+                              : "border-[var(--border-color)]"
                           }`}
                         >
                           {selectedDevices.includes(device.id) && (
@@ -726,10 +785,10 @@ export default function LiveBroadcastPage() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium text-gray-900">
+                          <p className="truncate font-medium text-[var(--text-primary)]">
                             {device.name}
                           </p>
-                          <p className="truncate text-sm text-gray-500">
+                          <p className="truncate text-xs text-[var(--text-muted)]">
                             {device.ipAddress}
                           </p>
                         </div>
@@ -739,47 +798,30 @@ export default function LiveBroadcastPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
-
-          {/* Right Column - Broadcast Controls */}
-          <div className="space-y-6">
-            {/* Pre-Tone Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Pre-Tone</CardTitle>
-                <CardDescription>
-                  Play a tone before broadcasting
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Select
-                  value={preTone}
-                  onChange={(e) => setPreTone(e.target.value)}
-                >
-                  <option value="">No pre-tone</option>
-                  <option value="__builtin_chime">Built-in Chime</option>
-                  <option value="__builtin_alert">Built-in Alert</option>
-                  {audioFiles.map((audio) => (
-                    <option key={audio.id} value={audio.id}>
-                      {audio.name}
-                    </option>
-                  ))}
-                </Select>
-                <p className="text-sm text-gray-500">
-                  Plays on devices before your voice/audio
-                </p>
-              </CardContent>
-            </Card>
 
             {/* Broadcast Controls */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Broadcast</CardTitle>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg gradient-fire">
+                    <Radio className="h-5 w-5 text-white" />
+                  </div>
+                  <CardTitle>Manual Broadcast</CardTitle>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
+                <Select value={preTone} onChange={(e) => setPreTone(e.target.value)}>
+                  <option value="">No pre-tone</option>
+                  <option value="__builtin_chime">Built-in Chime</option>
+                  <option value="__builtin_alert">Built-in Alert</option>
+                  {audioFiles.map((audio) => (
+                    <option key={audio.id} value={audio.id}>{audio.name}</option>
+                  ))}
+                </Select>
+
                 {!isCapturing ? (
-                  <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-700">
-                    Start audio capture first to enable broadcasting
+                  <div className="rounded-xl bg-[var(--accent-orange)]/15 border border-[var(--accent-orange)]/30 p-3 text-sm text-[var(--accent-orange)]">
+                    Start monitoring to enable broadcasting
                   </div>
                 ) : !broadcasting ? (
                   <Button
@@ -793,15 +835,15 @@ export default function LiveBroadcastPage() {
                   </Button>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-center gap-2 rounded-md bg-red-50 p-4">
-                      <Circle className="h-3 w-3 animate-pulse fill-red-500 text-red-500" />
-                      <span className="font-medium text-red-700">
+                    <div className="flex items-center justify-center gap-2 rounded-xl gradient-fire p-4">
+                      <Circle className="h-3 w-3 animate-pulse fill-white text-white" />
+                      <span className="font-bold text-white">
                         LIVE - {formatDuration(duration)}
                       </span>
                     </div>
                     <Button
-                      variant="destructive"
-                      className="w-full"
+                      variant="outline"
+                      className="w-full border-[var(--accent-red)] text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10"
                       size="lg"
                       onClick={handleStopBroadcast}
                     >
@@ -811,14 +853,13 @@ export default function LiveBroadcastPage() {
                   </div>
                 )}
 
-                {/* Recording Status */}
                 {isRecording && (
-                  <div className="flex items-center justify-between rounded-md bg-gray-100 p-3">
+                  <div className="flex items-center justify-between rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] p-3">
                     <div className="flex items-center gap-2">
-                      <Circle className="h-3 w-3 fill-red-500 text-red-500" />
+                      <Circle className="h-3 w-3 fill-[var(--accent-red)] text-[var(--accent-red)]" />
                       <span className="text-sm font-medium">Recording</span>
                     </div>
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm text-[var(--text-muted)] font-mono">
                       {formatDuration(duration)}
                     </span>
                   </div>
@@ -830,10 +871,7 @@ export default function LiveBroadcastPage() {
             {recordedBlob && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Recording</CardTitle>
-                  <CardDescription>
-                    {formatDuration(duration)} recorded
-                  </CardDescription>
+                  <CardTitle className="text-base">Recording</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <audio
@@ -842,71 +880,54 @@ export default function LiveBroadcastPage() {
                     src={URL.createObjectURL(recordedBlob)}
                   />
                   <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDownloadRecording}
-                    >
+                    <Button variant="outline" size="sm" onClick={handleDownloadRecording}>
                       <Download className="mr-1 h-4 w-4" />
                       Download
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveRecording}
-                      isLoading={saving}
-                    >
+                    <Button size="sm" onClick={handleSaveRecording} isLoading={saving}>
                       <Upload className="mr-1 h-4 w-4" />
-                      Save to Library
+                      Save
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Status */}
+            {/* Quick Stats */}
             <Card>
               <CardContent className="p-4">
-                <div className="space-y-2 text-sm">
+                <div className="space-y-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Capture</span>
+                    <span className="text-[var(--text-muted)]">Status</span>
                     <Badge variant={isCapturing ? "success" : "secondary"}>
                       {isCapturing ? "Active" : "Inactive"}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Broadcast</span>
+                    <span className="text-[var(--text-muted)]">Broadcast</span>
                     <Badge variant={broadcasting ? "destructive" : "secondary"}>
                       {broadcasting ? "Live" : "Off"}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Devices</span>
-                    <span className="font-medium">{selectedDevices.length} selected</span>
+                    <span className="text-[var(--text-muted)]">Devices</span>
+                    <span className="font-semibold text-[var(--text-primary)]">{selectedDevices.length} selected</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Debug Info */}
+            {/* Debug Info (Dev only) */}
             {isDev && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Debug Info</CardTitle>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-xs text-[var(--text-muted)]">Debug</CardTitle>
                 </CardHeader>
-                <CardContent className="p-4">
-                  <div className="space-y-1 text-xs font-mono">
-                    <div className="text-gray-600">Selected Devices (State):</div>
-                    <div className="text-gray-900 break-all">
-                      {selectedDevices.length > 0 ? selectedDevices.join(', ') : 'None'}
-                    </div>
-                    <div className="text-gray-600 mt-2">Input Device:</div>
-                    <div className="text-gray-900 break-all">
-                      {selectedInputDevice || 'Default'}
-                    </div>
-                    <div className="text-gray-600 mt-2">Monitoring:</div>
-                    <div className="text-gray-900">
-                      {isCapturing ? 'Active' : 'Stopped'}
-                    </div>
+                <CardContent className="py-0 pb-3">
+                  <div className="space-y-1 text-xs font-mono text-[var(--text-muted)]">
+                    <div>Devices: {selectedDevices.length > 0 ? selectedDevices.join(', ').slice(0, 30) + '...' : 'None'}</div>
+                    <div>Input: {selectedInputDevice || 'Default'}</div>
+                    <div>Monitoring: {isCapturing ? 'Active' : 'Stopped'}</div>
                   </div>
                 </CardContent>
               </Card>
