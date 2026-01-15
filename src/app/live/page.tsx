@@ -29,6 +29,9 @@ import {
   Power,
   PowerOff,
   AlertTriangle,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase/config";
@@ -88,6 +91,8 @@ export default function LiveBroadcastPage() {
     emergencyKillAll,
     emergencyEnableAll,
     controlSingleSpeaker,
+    speakerStatuses,
+    checkSpeakerConnectivity,
   } = useAudioMonitoring();
 
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
@@ -471,14 +476,33 @@ export default function LiveBroadcastPage() {
                 {contextDevices.filter(d => d.type !== "8301").length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[var(--text-muted)] text-xs uppercase tracking-wider">
-                        Individual Speakers
-                      </Label>
-                      {useGlobalVolume && (
-                        <span className="text-xs text-[var(--accent-orange)] bg-[var(--accent-orange)]/10 px-2 py-1 rounded">
-                          Overridden by Global Mode
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <Label className="text-[var(--text-muted)] text-xs uppercase tracking-wider">
+                          Individual Speakers
+                        </Label>
+                        {speakerStatuses.length > 0 && (
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            ({speakerStatuses.filter(s => s.isOnline).length}/{speakerStatuses.length} online)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => checkSpeakerConnectivity()}
+                          title="Check speaker connectivity"
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Check
+                        </Button>
+                        {useGlobalVolume && (
+                          <span className="text-xs text-[var(--accent-orange)] bg-[var(--accent-orange)]/10 px-2 py-1 rounded">
+                            Overridden by Global Mode
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className={`grid gap-3 max-h-[400px] overflow-y-auto transition-opacity ${useGlobalVolume ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
                       {contextDevices
@@ -505,9 +529,25 @@ export default function LiveBroadcastPage() {
                                 <div className="flex items-center gap-3">
                                   <Speaker className={`h-4 w-4 ${useGlobalVolume ? 'text-[var(--text-muted)]/50' : 'text-[var(--text-muted)]'}`} />
                                   <div>
-                                    <p className={`text-sm font-medium ${useGlobalVolume ? 'text-[var(--text-primary)]/60' : 'text-[var(--text-primary)]'}`}>
-                                      {speaker.name}
-                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <p className={`text-sm font-medium ${useGlobalVolume ? 'text-[var(--text-primary)]/60' : 'text-[var(--text-primary)]'}`}>
+                                        {speaker.name}
+                                      </p>
+                                      {/* Online/Offline status indicator */}
+                                      {(() => {
+                                        const status = speakerStatuses.find(s => s.speakerId === speaker.id);
+                                        if (!status) return null;
+                                        return status.isOnline ? (
+                                          <span className="flex items-center gap-1 text-[10px] text-[var(--accent-green)]" title="Online">
+                                            <Wifi className="h-3 w-3" />
+                                          </span>
+                                        ) : (
+                                          <span className="flex items-center gap-1 text-[10px] text-[var(--accent-red)]" title={status.errorMessage || 'Offline'}>
+                                            <WifiOff className="h-3 w-3" />
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
                                     <button
                                       onClick={() => {
                                         if (!isEditing && !useGlobalVolume) {

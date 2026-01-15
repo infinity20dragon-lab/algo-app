@@ -32,6 +32,16 @@ export interface AudioLogEntry {
   recordingUrl?: string; // URL to recorded audio clip
 }
 
+// Speaker connectivity status
+export interface SpeakerStatus {
+  speakerId: string;
+  speakerName: string;
+  ipAddress: string;
+  isOnline: boolean;
+  lastChecked: Date;
+  errorMessage?: string;
+}
+
 interface AudioMonitoringContextType {
   // Audio capture state
   isCapturing: boolean;
@@ -98,6 +108,10 @@ interface AudioMonitoringContextType {
   emergencyKillAll: () => Promise<void>;
   emergencyEnableAll: () => Promise<void>;
   controlSingleSpeaker: (speakerId: string, enable: boolean) => Promise<void>;
+
+  // Speaker Status Tracking
+  speakerStatuses: SpeakerStatus[];
+  checkSpeakerConnectivity: () => Promise<void>;
 }
 
 const AudioMonitoringContext = createContext<AudioMonitoringContextType | null>(null);
@@ -223,6 +237,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
 
   // Volume mode
   const [useGlobalVolume, setUseGlobalVolumeState] = useState(false);
+
+  // Speaker status tracking
+  const [speakerStatuses, setSpeakerStatuses] = useState<SpeakerStatus[]>([]);
 
   // Ramp settings
   const [rampEnabled, setRampEnabledState] = useState(true);
@@ -973,6 +990,96 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     }
   }, [devices, addLog]);
 
+  // Check connectivity of all linked speakers
+  const checkSpeakerConnectivity = useCallback(async () => {
+    const linkedSpeakerIds = new Set<string>();
+
+    // Get all linked speakers from selected paging devices
+    for (const deviceId of selectedDevices) {
+      const device = devices.find(d => d.id === deviceId);
+      if (!device) continue;
+      if (device.type === "8301" && device.linkedSpeakerIds) {
+        device.linkedSpeakerIds.forEach(id => linkedSpeakerIds.add(id));
+      }
+    }
+
+    if (linkedSpeakerIds.size === 0) {
+      setSpeakerStatuses([]);
+      return;
+    }
+
+    // Build device list for health check API
+    const speakersToCheck = Array.from(linkedSpeakerIds)
+      .map(id => devices.find(d => d.id === id))
+      .filter((s): s is AlgoDevice => !!s && !!s.ipAddress && !!s.apiPassword);
+
+    if (speakersToCheck.length === 0) {
+      setSpeakerStatuses([]);
+      return;
+    }
+
+    debugLog(`[AudioMonitoring] Checking connectivity for ${speakersToCheck.length} speakers...`);
+
+    try {
+      const response = await fetch("/api/algo/health", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          devices: speakersToCheck.map(s => ({
+            id: s.id,
+            ipAddress: s.ipAddress,
+            apiPassword: s.apiPassword,
+            authMethod: s.authMethod || "standard",
+          })),
+          timeout: 3000,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Health check failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Convert API response to SpeakerStatus array
+      const statuses: SpeakerStatus[] = result.devices.map((d: { id: string; ipAddress: string; isOnline: boolean; error?: string }) => {
+        const speaker = devices.find(s => s.id === d.id);
+        return {
+          speakerId: d.id,
+          speakerName: speaker?.name || 'Unknown',
+          ipAddress: d.ipAddress,
+          isOnline: d.isOnline,
+          lastChecked: new Date(),
+          errorMessage: d.error,
+        };
+      });
+
+      setSpeakerStatuses(statuses);
+
+      const onlineCount = statuses.filter(s => s.isOnline).length;
+      const offlineCount = statuses.filter(s => !s.isOnline).length;
+
+      addLog({
+        type: offlineCount > 0 ? "speakers_disabled" : "speakers_enabled",
+        message: `Connectivity check: ${onlineCount} online, ${offlineCount} offline`,
+      });
+
+      debugLog(`[AudioMonitoring] Connectivity check complete: ${onlineCount} online, ${offlineCount} offline`);
+    } catch (error) {
+      console.error('[AudioMonitoring] Connectivity check failed:', error);
+      // Set all as unknown status on error
+      const statuses: SpeakerStatus[] = speakersToCheck.map(s => ({
+        speakerId: s.id,
+        speakerName: s.name || 'Unknown',
+        ipAddress: s.ipAddress || 'Unknown',
+        isOnline: false,
+        lastChecked: new Date(),
+        errorMessage: 'Check failed',
+      }));
+      setSpeakerStatuses(statuses);
+    }
+  }, [selectedDevices, devices, addLog]);
+
   // Audio activity detection with sustained audio requirement
   useEffect(() => {
     if (!isCapturing) {
@@ -1115,6 +1222,9 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     // This ensures the UI responds instantly and audio is being captured
     startCapture(inputDevice);
 
+    // Check speaker connectivity first (in background)
+    checkSpeakerConnectivity();
+
     // Enable multicast on speakers in parallel (don't block audio capture)
     // This keeps speakers always listening, so short audio bursts aren't missed
     debugLog('[AudioMonitoring] Enabling multicast on all speakers (always-on mode)');
@@ -1122,7 +1232,13 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     // Run speaker setup in background - offline speakers shouldn't block monitoring
     (async () => {
       try {
+        // CRITICAL: Set all speakers to volume 0 BEFORE enabling multicast
+        // This prevents static noise if any speaker has default volume > 0
         await setDevicesVolume(0); // Muted initially
+
+        // Wait briefly to ensure volume command is fully processed by devices
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         await controlSpeakers(true); // Enable multicast
         setSpeakersEnabled(true); // Mark speakers as enabled
 
@@ -1138,7 +1254,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         setSpeakersEnabled(true);
       }
     })();
-  }, [startCapture, audioThreshold, addLog, setDevicesVolume, controlSpeakers]);
+  }, [startCapture, audioThreshold, addLog, setDevicesVolume, controlSpeakers, checkSpeakerConnectivity]);
 
   const stopMonitoring = useCallback(async () => {
     debugLog('[AudioMonitoring] Stopping monitoring');
@@ -1306,6 +1422,8 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         emergencyKillAll,
         emergencyEnableAll,
         controlSingleSpeaker,
+        speakerStatuses,
+        checkSpeakerConnectivity,
       }}
     >
       {children}

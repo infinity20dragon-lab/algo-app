@@ -67,9 +67,13 @@ export function Sidebar({ onLogout }: SidebarProps) {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex h-16 items-center border-b border-[var(--border-color)] px-6">
-            <Link href="/" className="flex items-center gap-2">
-              <Radio className="h-8 w-8 text-[var(--accent-blue)]" />
-              <span className="text-xl font-bold text-[var(--text-primary)]">AlgoSound</span>
+            <Link href="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl gradient-fire flex items-center justify-center">
+                <Radio className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-xl font-bold text-[var(--text-primary)]">
+                Algo<span className="text-[var(--accent-orange)]">Sound</span>
+              </span>
             </Link>
           </div>
 
