@@ -46,10 +46,14 @@ export async function addDevice(device: Omit<AlgoDevice, "id" | "createdAt" | "u
 
 export async function updateDevice(id: string, data: Partial<AlgoDevice>): Promise<void> {
   const docRef = doc(db, "devices", id);
-  await updateDoc(docRef, {
-    ...data,
-    updatedAt: Timestamp.now(),
-  });
+  // Firebase doesn't allow undefined values - filter them out
+  const cleanData: Record<string, unknown> = { updatedAt: Timestamp.now() };
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      cleanData[key] = value;
+    }
+  }
+  await updateDoc(docRef, cleanData);
 }
 
 export async function deleteDevice(id: string): Promise<void> {
