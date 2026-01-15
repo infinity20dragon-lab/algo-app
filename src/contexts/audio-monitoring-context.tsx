@@ -257,6 +257,7 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   const currentVolumeRef = useRef<number>(0);
   const hasRestoredStateRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
+  const previousDayModeRef = useRef<boolean | null>(null);
 
   // Sustained audio tracking
   const sustainedAudioStartRef = useRef<number | null>(null);
@@ -696,15 +697,17 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       // Calculate actual volume based on mode
       let actualVolume: number;
       if (useGlobalVolume) {
-        // Global mode: all speakers use same volume, ignore individual max
+        // Global mode: all speakers use targetVolume (with ramping if enabled)
+        // volumePercent comes from the ramp (0-100% of targetVolume)
         actualVolume = volumePercent;
         debugLog(`[AudioMonitoring] GLOBAL MODE - Setting ${speaker.name} to ${actualVolume.toFixed(0)}%`);
       } else {
-        // Individual mode: scale by speaker's maxVolume
-        // If volumePercent is 80% and speaker.maxVolume is 70%, actual = 80% of 70% = 56%
+        // Individual mode: each speaker ramps to its own maxVolume
+        // volumePercent represents the ramp progress (0-100%)
+        // At 0%: speaker is at 0%, at 100%: speaker is at its maxVolume
         const speakerMaxVolume = speaker.maxVolume ?? 100;
         actualVolume = (volumePercent / 100) * speakerMaxVolume;
-        debugLog(`[AudioMonitoring] INDIVIDUAL MODE - Setting ${speaker.name} volume: ${volumePercent}% of max ${speakerMaxVolume}% = ${actualVolume.toFixed(0)}%`);
+        debugLog(`[AudioMonitoring] INDIVIDUAL MODE - Setting ${speaker.name} to ${volumePercent.toFixed(0)}% of its max ${speakerMaxVolume}% = ${actualVolume.toFixed(0)}% (Level ${Math.round(actualVolume/10)})`);
       }
 
       // Convert 0-100% to 0-10 scale, then to dB
@@ -788,20 +791,32 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     const effectiveRampDuration = getEffectiveRampDuration();
     currentVolumeRef.current = startFrom;
 
+    // Individual mode: Ramp to 100% (each speaker will scale to its maxVolume)
+    // Global mode: Ramp to targetVolume (all speakers use same volume)
+    const rampTarget = useGlobalVolume ? targetVolume : 100;
+
     // If ramp duration is 0 (instant), set target volume immediately
     if (effectiveRampDuration === 0) {
-      debugLog(`[AudioMonitoring] Instant volume: ${targetVolume}%`);
-      currentVolumeRef.current = targetVolume;
-      setDevicesVolume(targetVolume);
+      if (useGlobalVolume) {
+        debugLog(`[AudioMonitoring] GLOBAL MODE - Instant volume: ${targetVolume}%`);
+      } else {
+        debugLog(`[AudioMonitoring] INDIVIDUAL MODE - Instant: each speaker to its max volume`);
+      }
+      currentVolumeRef.current = rampTarget;
+      setDevicesVolume(rampTarget);
       return;
     }
 
     const stepInterval = 500;
     const steps = effectiveRampDuration / stepInterval;
-    const volumeDiff = targetVolume - startFrom;
+    const volumeDiff = rampTarget - startFrom;
     const volumeIncrement = volumeDiff / steps;
 
-    debugLog(`[AudioMonitoring] Starting volume ramp: ${startFrom}% → ${targetVolume}% over ${effectiveRampDuration/1000}s`);
+    if (useGlobalVolume) {
+      debugLog(`[AudioMonitoring] GLOBAL MODE - Starting volume ramp: ${startFrom}% → ${targetVolume}% over ${effectiveRampDuration/1000}s`);
+    } else {
+      debugLog(`[AudioMonitoring] INDIVIDUAL MODE - Starting volume ramp: ${startFrom}% → 100% (each speaker to its max) over ${effectiveRampDuration/1000}s`);
+    }
 
     // Set initial volume
     setDevicesVolume(startFrom);
@@ -809,29 +824,29 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     volumeRampIntervalRef.current = setInterval(() => {
       currentVolumeRef.current += volumeIncrement;
 
-      if (volumeIncrement > 0 && currentVolumeRef.current >= targetVolume) {
+      if (volumeIncrement > 0 && currentVolumeRef.current >= rampTarget) {
         // Ramping up
-        currentVolumeRef.current = targetVolume;
-        setDevicesVolume(targetVolume);
+        currentVolumeRef.current = rampTarget;
+        setDevicesVolume(rampTarget);
         if (volumeRampIntervalRef.current) {
           clearInterval(volumeRampIntervalRef.current);
           volumeRampIntervalRef.current = null;
         }
-        debugLog(`[AudioMonitoring] Volume ramp complete at ${targetVolume}%`);
-      } else if (volumeIncrement < 0 && currentVolumeRef.current <= targetVolume) {
+        debugLog(`[AudioMonitoring] Volume ramp complete at ${rampTarget}%`);
+      } else if (volumeIncrement < 0 && currentVolumeRef.current <= rampTarget) {
         // Ramping down
-        currentVolumeRef.current = targetVolume;
-        setDevicesVolume(targetVolume);
+        currentVolumeRef.current = rampTarget;
+        setDevicesVolume(rampTarget);
         if (volumeRampIntervalRef.current) {
           clearInterval(volumeRampIntervalRef.current);
           volumeRampIntervalRef.current = null;
         }
-        debugLog(`[AudioMonitoring] Volume ramp complete at ${targetVolume}%`);
+        debugLog(`[AudioMonitoring] Volume ramp complete at ${rampTarget}%`);
       } else {
         setDevicesVolume(currentVolumeRef.current);
       }
     }, stepInterval);
-  }, [targetVolume, setDevicesVolume, getEffectiveRampDuration]);
+  }, [targetVolume, useGlobalVolume, setDevicesVolume, getEffectiveRampDuration]);
 
   const stopVolumeRamp = useCallback(() => {
     if (volumeRampIntervalRef.current) {
@@ -841,6 +856,44 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
     currentVolumeRef.current = 0;
     setDevicesVolume(0);
   }, [setDevicesVolume]);
+
+  // Auto-detect day/night mode changes while monitoring (24/7 operation)
+  useEffect(() => {
+    // Only run if day/night mode is enabled
+    if (!dayNightMode) {
+      previousDayModeRef.current = null;
+      return;
+    }
+
+    // Check every minute for day/night transitions
+    const checkInterval = setInterval(() => {
+      const currentIsDaytime = isDaytime();
+
+      // Initialize on first run
+      if (previousDayModeRef.current === null) {
+        previousDayModeRef.current = currentIsDaytime;
+        debugLog(`[AudioMonitoring] Day/night monitor initialized: ${currentIsDaytime ? 'DAY' : 'NIGHT'}`);
+        return;
+      }
+
+      // Check if day/night mode changed
+      if (previousDayModeRef.current !== currentIsDaytime) {
+        debugLog(`[AudioMonitoring] ⏰ Day/night mode changed: ${previousDayModeRef.current ? 'DAY' : 'NIGHT'} → ${currentIsDaytime ? 'DAY' : 'NIGHT'}`);
+        previousDayModeRef.current = currentIsDaytime;
+
+        // If speakers are currently enabled, restart the ramp with new settings
+        if (speakersEnabled && !controllingSpakersRef.current) {
+          const currentVolume = currentVolumeRef.current;
+          debugLog(`[AudioMonitoring] Restarting volume ramp due to day/night change from ${currentVolume}%`);
+          startVolumeRamp(currentVolume);
+        }
+      }
+    }, 60000); // Check every 60 seconds
+
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [dayNightMode, isDaytime, speakersEnabled, startVolumeRamp]);
 
   // Enable/disable speakers
   const controlSpeakers = useCallback(async (enable: boolean) => {
