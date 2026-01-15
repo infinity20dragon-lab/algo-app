@@ -1061,10 +1061,14 @@ export default function LiveBroadcastPage() {
                 <CardHeader className="py-3">
                   <CardTitle className="text-xs text-[var(--text-muted)]">Debug</CardTitle>
                 </CardHeader>
-                <CardContent className="py-0 pb-3">
-                  <div className="space-y-1 text-xs font-mono text-[var(--text-muted)]">
-                    <div>Devices: {selectedDevices.length > 0 ? selectedDevices.join(', ').slice(0, 30) + '...' : 'None'}</div>
-                    <div>Input: {selectedInputDevice || 'Default'}</div>
+                <CardContent className="py-0 pb-3 overflow-x-auto">
+                  <div className="space-y-1 text-xs font-mono text-[var(--text-muted)] min-w-0">
+                    <div className="truncate" title={selectedDevices.join(', ')}>
+                      Devices: {selectedDevices.length > 0 ? selectedDevices.join(', ') : 'None'}
+                    </div>
+                    <div className="truncate" title={selectedInputDevice || 'Default'}>
+                      Input: {selectedInputDevice || 'Default'}
+                    </div>
                     <div>Monitoring: {isCapturing ? 'Active' : 'Stopped'}</div>
                   </div>
                 </CardContent>

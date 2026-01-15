@@ -1110,22 +1110,33 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       message: `Monitoring started with threshold: ${audioThreshold}%`,
     });
 
-    // CRITICAL FIX: Enable multicast on speakers IMMEDIATELY at volume 0
-    // This keeps speakers always listening, so short audio bursts aren't missed
-    // Only volume will change when audio is detected (much faster than enabling multicast)
-    debugLog('[AudioMonitoring] Enabling multicast on all speakers (always-on mode)');
-    await setDevicesVolume(0); // Muted initially
-    await controlSpeakers(true); // Enable multicast immediately
-    setSpeakersEnabled(true); // Mark speakers as enabled (always on during monitoring)
-
-    addLog({
-      type: "speakers_enabled",
-      speakersEnabled: true,
-      volume: 0,
-      message: `Speakers enabled in always-on mode (muted) - ready for instant response`,
-    });
-
+    // Start audio capture IMMEDIATELY - don't wait for speaker setup
+    // This ensures the UI responds instantly and audio is being captured
     startCapture(inputDevice);
+
+    // Enable multicast on speakers in parallel (don't block audio capture)
+    // This keeps speakers always listening, so short audio bursts aren't missed
+    debugLog('[AudioMonitoring] Enabling multicast on all speakers (always-on mode)');
+
+    // Run speaker setup in background - offline speakers shouldn't block monitoring
+    (async () => {
+      try {
+        await setDevicesVolume(0); // Muted initially
+        await controlSpeakers(true); // Enable multicast
+        setSpeakersEnabled(true); // Mark speakers as enabled
+
+        addLog({
+          type: "speakers_enabled",
+          speakersEnabled: true,
+          volume: 0,
+          message: `Speakers enabled in always-on mode (muted) - ready for instant response`,
+        });
+      } catch (error) {
+        console.error('[AudioMonitoring] Error during speaker setup:', error);
+        // Continue anyway - audio capture is already running
+        setSpeakersEnabled(true);
+      }
+    })();
   }, [startCapture, audioThreshold, addLog, setDevicesVolume, controlSpeakers]);
 
   const stopMonitoring = useCallback(async () => {

@@ -21,6 +21,16 @@ export function VUMeter({
 
   // Update peak hold
   useEffect(() => {
+    // Reset peak when level goes to 0 (monitoring stopped)
+    if (level === 0) {
+      peakRef.current = 0;
+      if (peakDecayRef.current) {
+        clearTimeout(peakDecayRef.current);
+        peakDecayRef.current = null;
+      }
+      return;
+    }
+
     if (level > peakRef.current) {
       peakRef.current = level;
       // Clear existing decay timeout
