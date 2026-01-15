@@ -45,8 +45,25 @@ export function VUMeter({
     };
   }, [level]);
 
-  const activeBars = Math.floor((level / 100) * barCount);
-  const peakBar = Math.floor((peakRef.current / 100) * barCount);
+  // Use logarithmic scale for better sensitivity at low levels
+  // This makes quiet sounds more visible
+  // log scale: output = ln(1 + input * 9) / ln(10) * 100
+  // At 1% input: ~4% output, at 10% input: ~40% output, at 100% input: 100% output
+  const logScale = (value: number) => {
+    if (value <= 0) return 0;
+    // Amplify small values: use a modified log scale
+    // First ensure we're working with 0-100 range
+    const normalized = Math.min(100, Math.max(0, value));
+    // Use sqrt for a gentler curve that shows low levels better
+    const scaled = Math.sqrt(normalized / 100) * 100;
+    return scaled;
+  };
+
+  const scaledLevel = logScale(level);
+  const scaledPeak = logScale(peakRef.current);
+
+  const activeBars = Math.floor((scaledLevel / 100) * barCount);
+  const peakBar = Math.floor((scaledPeak / 100) * barCount);
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
@@ -105,7 +122,9 @@ export function VUMeterVertical({
   barCount = 16,
   label,
 }: VUMeterVerticalProps) {
-  const activeBars = Math.floor((level / 100) * barCount);
+  // Use sqrt scale for better visibility of low levels
+  const scaledLevel = level > 0 ? Math.sqrt(level / 100) * 100 : 0;
+  const activeBars = Math.floor((scaledLevel / 100) * barCount);
 
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
@@ -180,9 +199,11 @@ export function CircularVUMeter({
   strokeWidth = 8,
   className,
 }: CircularVUMeterProps) {
+  // Use sqrt scale for better visibility of low levels
+  const scaledLevel = level > 0 ? Math.sqrt(level / 100) * 100 : 0;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  const offset = circumference - (level / 100) * circumference;
+  const offset = circumference - (scaledLevel / 100) * circumference;
 
   // Determine color based on level
   let strokeColor = "var(--accent-green)";

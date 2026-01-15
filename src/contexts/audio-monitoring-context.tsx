@@ -656,6 +656,12 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       const speaker = devices.find(d => d.id === speakerId);
       if (!speaker) return;
 
+      // Skip speakers without proper credentials
+      if (!speaker.ipAddress || !speaker.apiPassword) {
+        console.warn(`[AudioMonitoring] Skipping ${speaker.name || speakerId}: missing IP or password`);
+        return;
+      }
+
       // Calculate actual volume based on mode
       let actualVolume: number;
       if (useGlobalVolume) {
@@ -680,24 +686,31 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       debugLog(`[AudioMonitoring] ${speaker.name} final: ${actualVolume.toFixed(0)}% → ${volumeDbString}`);
 
       try {
-        await fetch("/api/algo/settings", {
+        const response = await fetch("/api/algo/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ipAddress: speaker.ipAddress,
             password: speaker.apiPassword,
-            authMethod: speaker.authMethod,
+            authMethod: speaker.authMethod || "standard",
             settings: {
               "audio.page.vol": volumeDbString,
             },
           }),
         });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          console.error(`[AudioMonitoring] Failed to set volume for ${speaker.name}: HTTP ${response.status} - ${errorText}`);
+        }
       } catch (error) {
-        console.error(`Failed to set volume for ${speaker.name}:`, error);
+        // Network error - speaker might be offline
+        console.error(`[AudioMonitoring] Network error setting volume for ${speaker.name}:`, error);
       }
     });
 
-    await Promise.all(volumePromises);
+    // Use allSettled to continue even if some speakers fail
+    await Promise.allSettled(volumePromises);
   }, [selectedDevices, devices, useGlobalVolume]);
 
   // Helper function to determine if it's currently daytime
