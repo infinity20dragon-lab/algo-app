@@ -379,7 +379,7 @@ export default function LiveBroadcastPage() {
                       {isCapturing ? `${audioLevel.toFixed(1)}%` : "-- %"}
                     </span>
                   </div>
-                  <VUMeter level={isCapturing ? audioLevel : 0} barCount={24} />
+                  <VUMeter level={isCapturing ? audioLevel : 0} barCount={24} showPeakHold={false} />
 
                   {/* Threshold indicator */}
                   <div className="mt-4 flex items-center gap-2">

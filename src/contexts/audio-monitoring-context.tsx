@@ -700,12 +700,13 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         });
 
         if (!response.ok) {
+          // Only log as warning (not error) - offline speakers are expected
           const errorText = await response.text().catch(() => 'Unknown error');
-          console.error(`[AudioMonitoring] Failed to set volume for ${speaker.name}: HTTP ${response.status} - ${errorText}`);
+          debugLog(`[AudioMonitoring] Skipping offline speaker ${speaker.name}: ${errorText}`);
         }
       } catch (error) {
-        // Network error - speaker might be offline
-        console.error(`[AudioMonitoring] Network error setting volume for ${speaker.name}:`, error);
+        // Network error - speaker might be offline, just skip silently
+        debugLog(`[AudioMonitoring] Skipping offline speaker ${speaker.name}`);
       }
     });
 
