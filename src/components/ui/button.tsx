@@ -13,12 +13,12 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
 
     const variants = {
-      default: "bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500",
-      destructive: "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500",
-      outline: "border border-gray-300 bg-white hover:bg-gray-50 focus-visible:ring-gray-500",
-      secondary: "bg-gray-100 text-gray-900 hover:bg-gray-200 focus-visible:ring-gray-500",
-      ghost: "hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-gray-500",
-      link: "text-blue-600 underline-offset-4 hover:underline focus-visible:ring-blue-500",
+      default: "bg-[var(--accent-blue)] text-white hover:bg-[#3a8eef] focus-visible:ring-[var(--accent-blue)]",
+      destructive: "bg-[var(--accent-red)] text-white hover:bg-[#ef4c4c] focus-visible:ring-[var(--accent-red)]",
+      outline: "border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border-active)] focus-visible:ring-[var(--accent-blue)]",
+      secondary: "bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--border-color)] focus-visible:ring-[var(--accent-blue)]",
+      ghost: "hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:ring-[var(--accent-blue)]",
+      link: "text-[var(--accent-blue)] underline-offset-4 hover:underline focus-visible:ring-[var(--accent-blue)]",
     };
 
     const sizes = {

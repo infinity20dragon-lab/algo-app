@@ -30,11 +30,11 @@ export function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg-primary)] px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100">
-            <Radio className="h-8 w-8 text-blue-600" />
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--accent-blue)]/20">
+            <Radio className="h-8 w-8 text-[var(--accent-blue)]" />
           </div>
           <CardTitle className="text-2xl">AlgoSound</CardTitle>
           <CardDescription>
@@ -44,7 +44,7 @@ export function LoginForm() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+              <div className="rounded-md bg-[var(--accent-red)]/10 border border-[var(--accent-red)]/30 p-3 text-sm text-[var(--accent-red)]">
                 {error}
               </div>
             )}

@@ -69,7 +69,7 @@ export function AudioLogViewer() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-lg">Activity Log</CardTitle>
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
+            <div className="text-sm text-[var(--text-muted)] flex items-center gap-2">
               <span>Real-time monitoring events ({logs.length} entries)</span>
               {!loggingEnabled && (
                 <Badge variant="secondary" className="text-xs">Logging OFF</Badge>
@@ -115,25 +115,25 @@ export function AudioLogViewer() {
       </CardHeader>
       <CardContent>
         {logs.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-500">
+          <div className="py-8 text-center text-sm text-[var(--text-muted)]">
             No events logged yet. Start monitoring to see activity.
           </div>
         ) : (
           <div className="max-h-[400px] overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50 border-b">
+              <thead className="sticky top-0 bg-[var(--bg-secondary)] border-b border-[var(--border-color)]">
                 <tr>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">Time</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">Type</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">Audio Level</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">Message</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-600">Recording</th>
+                  <th className="px-2 py-2 text-left font-medium text-[var(--text-muted)]">Time</th>
+                  <th className="px-2 py-2 text-left font-medium text-[var(--text-muted)]">Type</th>
+                  <th className="px-2 py-2 text-left font-medium text-[var(--text-muted)]">Audio Level</th>
+                  <th className="px-2 py-2 text-left font-medium text-[var(--text-muted)]">Message</th>
+                  <th className="px-2 py-2 text-left font-medium text-[var(--text-muted)]">Recording</th>
                 </tr>
               </thead>
               <tbody>
                 {[...logs].reverse().map((log, index) => (
-                  <tr key={index} className="border-b hover:bg-gray-50">
-                    <td className="px-2 py-2 text-gray-600 whitespace-nowrap">
+                  <tr key={index} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]">
+                    <td className="px-2 py-2 text-[var(--text-secondary)] whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleTimeString()}
                     </td>
                     <td className="px-2 py-2">
@@ -141,14 +141,14 @@ export function AudioLogViewer() {
                         {getTypeLabel(log.type)}
                       </Badge>
                     </td>
-                    <td className="px-2 py-2 text-gray-600">
+                    <td className="px-2 py-2 text-[var(--text-secondary)]">
                       {log.audioLevel !== undefined ? (
                         <span className="font-mono">{log.audioLevel.toFixed(1)}%</span>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-[var(--text-muted)]">-</span>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-gray-900">{log.message}</td>
+                    <td className="px-2 py-2 text-[var(--text-primary)]">{log.message}</td>
                     <td className="px-2 py-2">
                       {log.recordingUrl ? (
                         <audio
@@ -158,7 +158,7 @@ export function AudioLogViewer() {
                           src={log.recordingUrl}
                         />
                       ) : (
-                        <span className="text-gray-400 text-xs">-</span>
+                        <span className="text-[var(--text-muted)] text-xs">-</span>
                       )}
                     </td>
                   </tr>

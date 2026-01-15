@@ -43,7 +43,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
     <>
       {/* Mobile menu button */}
       <button
-        className="fixed left-4 top-4 z-50 rounded-md bg-white p-2 shadow-md lg:hidden"
+        className="fixed left-4 top-4 z-50 rounded-md bg-[var(--bg-card)] text-[var(--text-primary)] p-2 shadow-md lg:hidden"
         onClick={() => setIsMobileOpen(!isMobileOpen)}
       >
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
@@ -60,16 +60,16 @@ export function Sidebar({ onLogout }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen w-64 transform border-r border-gray-200 bg-white transition-transform duration-200 ease-in-out lg:translate-x-0",
+          "fixed left-0 top-0 z-40 h-screen w-64 transform border-r border-[var(--border-color)] bg-[var(--bg-secondary)] transition-transform duration-200 ease-in-out lg:translate-x-0",
           isMobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex h-16 items-center border-b border-gray-200 px-6">
+          <div className="flex h-16 items-center border-b border-[var(--border-color)] px-6">
             <Link href="/" className="flex items-center gap-2">
-              <Radio className="h-8 w-8 text-blue-600" />
-              <span className="text-xl font-bold text-gray-900">AlgoSound</span>
+              <Radio className="h-8 w-8 text-[var(--accent-blue)]" />
+              <span className="text-xl font-bold text-[var(--text-primary)]">AlgoSound</span>
             </Link>
           </div>
 
@@ -85,8 +85,8 @@ export function Sidebar({ onLogout }: SidebarProps) {
                   className={cn(
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                      ? "bg-[var(--accent-blue)]/20 text-[var(--accent-blue)]"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   <item.icon className="h-5 w-5" />
@@ -97,10 +97,10 @@ export function Sidebar({ onLogout }: SidebarProps) {
           </nav>
 
           {/* Footer */}
-          <div className="border-t border-gray-200 p-3">
+          <div className="border-t border-[var(--border-color)] p-3">
             <button
               onClick={onLogout}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             >
               <LogOut className="h-5 w-5" />
               Logout

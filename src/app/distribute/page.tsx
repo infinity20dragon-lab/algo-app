@@ -210,7 +210,7 @@ export default function DistributePage() {
     return (
       <AppLayout>
         <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent" />
         </div>
       </AppLayout>
     );
@@ -221,8 +221,8 @@ export default function DistributePage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Distribute Sound</h1>
-          <p className="text-gray-500">
+          <h1 className="text-3xl font-bold text-[var(--text-primary)]">Distribute Sound</h1>
+          <p className="text-[var(--text-secondary)]">
             Play audio files across your Algo devices
           </p>
         </div>
@@ -240,9 +240,9 @@ export default function DistributePage() {
               </CardHeader>
               <CardContent>
                 {audioFiles.length === 0 ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-[var(--text-muted)]">
                     No audio files available.{" "}
-                    <a href="/audio" className="text-blue-600 hover:underline">
+                    <a href="/audio" className="text-[var(--accent-blue)] hover:underline">
                       Upload some first
                     </a>
                     .
@@ -284,7 +284,7 @@ export default function DistributePage() {
                 {/* Zone Quick Select */}
                 {zones.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    <span className="text-sm text-gray-500">Quick select:</span>
+                    <span className="text-sm text-[var(--text-muted)]">Quick select:</span>
                     {zones.map((zone) => (
                       <Button
                         key={zone}
@@ -300,9 +300,9 @@ export default function DistributePage() {
 
                 {/* Device List */}
                 {devices.length === 0 ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-[var(--text-muted)]">
                     No devices available.{" "}
-                    <a href="/devices" className="text-blue-600 hover:underline">
+                    <a href="/devices" className="text-[var(--accent-blue)] hover:underline">
                       Add some first
                     </a>
                     .
@@ -315,15 +315,15 @@ export default function DistributePage() {
                         onClick={() => toggleDevice(device.id)}
                         className={`flex items-center gap-3 rounded-md border p-3 text-left transition-colors ${
                           selectedDevices.includes(device.id)
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-gray-300"
+                            ? "border-[var(--accent-blue)] bg-[var(--accent-blue)]/10"
+                            : "border-[var(--border-color)] hover:border-[var(--border-active)]"
                         }`}
                       >
                         <div
                           className={`flex h-5 w-5 items-center justify-center rounded border ${
                             selectedDevices.includes(device.id)
-                              ? "border-blue-500 bg-blue-500"
-                              : "border-gray-300"
+                              ? "border-[var(--accent-blue)] bg-[var(--accent-blue)]"
+                              : "border-[var(--border-color)]"
                           }`}
                         >
                           {selectedDevices.includes(device.id) && (
@@ -331,10 +331,10 @@ export default function DistributePage() {
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium text-gray-900">
+                          <p className="truncate font-medium text-[var(--text-primary)]">
                             {device.name}
                           </p>
-                          <p className="truncate text-sm text-gray-500">
+                          <p className="truncate text-sm text-[var(--text-muted)]">
                             {device.ipAddress}
                             {device.zone && ` • ${device.zone}`}
                           </p>
@@ -371,7 +371,7 @@ export default function DistributePage() {
                     id="loop"
                     checked={loop}
                     onChange={(e) => setLoop(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
+                    className="h-4 w-4 rounded border-[var(--border-color)] bg-[var(--bg-tertiary)]"
                   />
                   <Label htmlFor="loop">Loop audio</Label>
                 </div>
@@ -415,7 +415,7 @@ export default function DistributePage() {
                 </CardHeader>
                 <CardContent>
                   {results.length === 0 && distributing ? (
-                    <div className="flex items-center gap-2 text-gray-500">
+                    <div className="flex items-center gap-2 text-[var(--text-muted)]">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>Distributing...</span>
                     </div>
@@ -427,13 +427,13 @@ export default function DistributePage() {
                           className="flex items-center gap-2 text-sm"
                         >
                           {result.success ? (
-                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <CheckCircle className="h-4 w-4 text-[var(--accent-green)]" />
                           ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
+                            <XCircle className="h-4 w-4 text-[var(--accent-red)]" />
                           )}
                           <span
                             className={
-                              result.success ? "text-gray-700" : "text-red-700"
+                              result.success ? "text-[var(--text-secondary)]" : "text-[var(--accent-red)]"
                             }
                           >
                             {result.deviceName}
@@ -451,13 +451,13 @@ export default function DistributePage() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <Radio className="h-5 w-5 text-gray-400" />
+                  <Radio className="h-5 w-5 text-[var(--text-muted)]" />
                   <div className="text-sm">
-                    <p className="font-medium text-gray-900">
+                    <p className="font-medium text-[var(--text-primary)]">
                       {selectedDevices.length} device
                       {selectedDevices.length !== 1 ? "s" : ""} selected
                     </p>
-                    <p className="text-gray-500">
+                    <p className="text-[var(--text-muted)]">
                       {selectedAudio
                         ? audioFiles.find((a) => a.id === selectedAudio)?.name
                         : "No audio selected"}

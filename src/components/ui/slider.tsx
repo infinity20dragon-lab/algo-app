@@ -14,7 +14,7 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
         <input
           type="range"
           className={cn(
-            "h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-blue-600",
+            "h-2 w-full cursor-pointer appearance-none rounded-lg bg-[var(--bg-tertiary)] accent-[var(--accent-blue)]",
             className
           )}
           ref={ref}
@@ -22,7 +22,7 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
           {...props}
         />
         {showValue && (
-          <span className="w-10 text-right text-sm font-medium text-gray-600">
+          <span className="w-10 text-right text-sm font-medium text-[var(--text-secondary)]">
             {value}%
           </span>
         )}

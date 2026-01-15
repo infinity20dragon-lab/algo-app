@@ -16,8 +16,8 @@ const Switch = forwardRef<HTMLInputElement, SwitchProps>(
         disabled={disabled}
         onClick={() => onCheckedChange?.(!checked)}
         className={cn(
-          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-          checked ? "bg-blue-600" : "bg-gray-200",
+          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          checked ? "bg-[var(--accent-blue)]" : "bg-[var(--bg-tertiary)]",
           className
         )}
       >

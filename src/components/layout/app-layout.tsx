@@ -16,7 +16,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent" />
       </div>
     );
   }
@@ -26,7 +26,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[var(--bg-primary)]">
       <Sidebar onLogout={signOut} />
       <main className="lg:pl-64">
         <div className="p-4 pt-20 lg:p-8 lg:pt-8">{children}</div>

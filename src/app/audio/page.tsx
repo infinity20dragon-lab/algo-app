@@ -237,8 +237,8 @@ export default function AudioPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Audio Library</h1>
-            <p className="text-gray-500">Manage audio files on your Algo paging device</p>
+            <h1 className="text-3xl font-bold text-[var(--text-primary)]">Audio Library</h1>
+            <p className="text-[var(--text-secondary)]">Manage audio files on your Algo paging device</p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -258,7 +258,7 @@ export default function AudioPage() {
 
         {/* Upload Modal */}
         {showUpload && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
             <Card className="w-full max-w-md">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -268,7 +268,7 @@ export default function AudioPage() {
                       setShowUpload(false);
                       setSelectedFile(null);
                     }}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   >
                     <X className="h-5 w-5" />
                   </button>
@@ -288,13 +288,13 @@ export default function AudioPage() {
                     onChange={handleFileSelect}
                   />
                   {selectedFile && (
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-[var(--text-secondary)]">
                       {selectedFile.name} ({formatBytes(selectedFile.size)})
                     </p>
                   )}
                 </div>
 
-                <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700">
+                <div className="rounded-md bg-[var(--accent-blue)]/10 border border-[var(--accent-blue)]/30 p-3 text-sm text-[var(--accent-blue)]">
                   The file will be uploaded directly to the selected device and will be available immediately for playback.
                 </div>
 
@@ -362,12 +362,12 @@ export default function AudioPage() {
             <CardContent>
               {loadingTones ? (
                 <div className="flex justify-center py-8">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--accent-blue)] border-t-transparent" />
                 </div>
               ) : deviceTones.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8">
-                  <Music className="h-12 w-12 text-gray-300 mb-4" />
-                  <p className="text-gray-500">No tones found on device</p>
+                  <Music className="h-12 w-12 text-[var(--text-muted)] mb-4" />
+                  <p className="text-[var(--text-secondary)]">No tones found on device</p>
                   <Button
                     variant="outline"
                     onClick={fetchDeviceTones}
@@ -381,7 +381,7 @@ export default function AudioPage() {
                 <div className="space-y-4">
                   {/* Default Tones */}
                   <div>
-                    <h3 className="text-sm font-medium text-gray-700 mb-2">Default Tones</h3>
+                    <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-2">Default Tones</h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                       {deviceTones.filter(t => !isCustomTone(t)).map((tone) => (
                         <Button
@@ -401,12 +401,12 @@ export default function AudioPage() {
                   {/* Custom Tones */}
                   {deviceTones.some(t => isCustomTone(t)) && (
                     <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-2">Custom Tones</h3>
+                      <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-2">Custom Tones</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                         {deviceTones.filter(t => isCustomTone(t)).map((tone) => (
                           <div
                             key={tone}
-                            className="flex items-center gap-2 rounded-md border p-2"
+                            className="flex items-center gap-2 rounded-md border border-[var(--border-color)] p-2"
                           >
                             <Button
                               variant={playingTone === tone ? "default" : "ghost"}
@@ -423,10 +423,10 @@ export default function AudioPage() {
                               size="sm"
                               onClick={() => handleDeleteTone(tone)}
                               disabled={deleting === tone}
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              className="text-[var(--accent-red)] hover:text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10"
                             >
                               {deleting === tone ? (
-                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
+                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent-red)] border-t-transparent" />
                               ) : (
                                 <Trash2 className="h-4 w-4" />
                               )}
@@ -446,13 +446,13 @@ export default function AudioPage() {
         {!selectedDevice && !loading && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="mb-4 rounded-full bg-gray-100 p-4">
-                <Music className="h-8 w-8 text-gray-400" />
+              <div className="mb-4 rounded-full bg-[var(--bg-tertiary)] p-4">
+                <Music className="h-8 w-8 text-[var(--text-muted)]" />
               </div>
-              <h3 className="mb-2 text-lg font-medium text-gray-900">
+              <h3 className="mb-2 text-lg font-medium text-[var(--text-primary)]">
                 Select a Device
               </h3>
-              <p className="text-center text-gray-500">
+              <p className="text-center text-[var(--text-muted)]">
                 Choose an Algo 8301 paging device above to manage its audio files
               </p>
             </CardContent>

@@ -15,8 +15,8 @@ export default function SettingsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-500">Configure your AlgoSound system</p>
+          <h1 className="text-3xl font-bold text-[var(--text-primary)]">Settings</h1>
+          <p className="text-[var(--text-secondary)]">Configure your AlgoSound system</p>
         </div>
 
         {/* Account Info */}
@@ -54,7 +54,7 @@ export default function SettingsPage() {
                 defaultValue="algo"
                 placeholder="algo"
               />
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[var(--text-muted)]">
                 Used as the default password when adding new devices
               </p>
             </div>
@@ -67,7 +67,7 @@ export default function SettingsPage() {
                 max={100}
                 defaultValue={50}
               />
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[var(--text-muted)]">
                 Default volume level for new distributions (0-100)
               </p>
             </div>
@@ -80,7 +80,7 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>About AlgoSound</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm text-gray-600">
+          <CardContent className="space-y-2 text-sm text-[var(--text-secondary)]">
             <p>
               <strong>Version:</strong> 1.0.0
             </p>

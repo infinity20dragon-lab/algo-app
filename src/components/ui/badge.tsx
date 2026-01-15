@@ -7,12 +7,12 @@ export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
 
 function Badge({ className, variant = "default", ...props }: BadgeProps) {
   const variants = {
-    default: "bg-blue-100 text-blue-800 border-blue-200",
-    secondary: "bg-gray-100 text-gray-800 border-gray-200",
-    destructive: "bg-red-100 text-red-800 border-red-200",
-    success: "bg-green-100 text-green-800 border-green-200",
-    warning: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    outline: "bg-transparent border-gray-300 text-gray-700",
+    default: "bg-[var(--accent-blue)]/20 text-[var(--accent-blue)] border-[var(--accent-blue)]/30",
+    secondary: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)]",
+    destructive: "bg-[var(--accent-red)]/20 text-[var(--accent-red)] border-[var(--accent-red)]/30",
+    success: "bg-[var(--accent-green)]/20 text-[var(--accent-green)] border-[var(--accent-green)]/30",
+    warning: "bg-[var(--accent-orange)]/20 text-[var(--accent-orange)] border-[var(--accent-orange)]/30",
+    outline: "bg-transparent border-[var(--border-color)] text-[var(--text-secondary)]",
   };
 
   return (
