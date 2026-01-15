@@ -642,13 +642,22 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!hasRestoredStateRef.current) return;
 
-    // Only restart ramp if speakers are currently enabled
+    // Only restart ramp if:
+    // 1. Speakers are currently enabled
+    // 2. Not currently controlling speakers
+    // 3. Speakers were ALREADY enabled (don't trigger on initial enable)
     if (speakersEnabled && !controllingSpakersRef.current) {
+      // Check if this is the initial enable (currentVolume should still be 0)
       const currentVolume = currentVolumeRef.current;
-      debugLog(`[AudioMonitoring] Target volume changed, restarting ramp from ${currentVolume}% to ${targetVolume}%`);
 
-      // Restart ramp from current volume to new target
-      startVolumeRamp(currentVolume);
+      // Don't start ramp on initial monitoring start - wait for audio detection
+      // Only start ramp when targetVolume changes while already monitoring
+      if (currentVolume > 0 || audioDetected) {
+        debugLog(`[AudioMonitoring] Target volume changed, restarting ramp from ${currentVolume}% to ${targetVolume}%`);
+        startVolumeRamp(currentVolume);
+      } else {
+        debugLog(`[AudioMonitoring] Speakers enabled but waiting for audio detection before ramping`);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetVolume, speakersEnabled]);
@@ -669,9 +678,14 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
       }
     }
 
+    debugLog(`[AudioMonitoring] setDevicesVolume(${volumePercent}%) - processing ${linkedSpeakerIds.size} speakers`);
+
     const volumePromises = Array.from(linkedSpeakerIds).map(async (speakerId) => {
       const speaker = devices.find(d => d.id === speakerId);
-      if (!speaker) return;
+      if (!speaker) {
+        debugLog(`[AudioMonitoring] Speaker ${speakerId} not found in devices array`);
+        return;
+      }
 
       // Skip speakers without proper credentials
       if (!speaker.ipAddress || !speaker.apiPassword) {
@@ -719,16 +733,19 @@ export function AudioMonitoringProvider({ children }: { children: React.ReactNod
         if (!response.ok) {
           // Only log as warning (not error) - offline speakers are expected
           const errorText = await response.text().catch(() => 'Unknown error');
-          debugLog(`[AudioMonitoring] Skipping offline speaker ${speaker.name}: ${errorText}`);
+          debugLog(`[AudioMonitoring] ❌ Failed to set ${speaker.name} volume: ${errorText}`);
+        } else {
+          debugLog(`[AudioMonitoring] ✓ Successfully set ${speaker.name} to ${volumeDbString}`);
         }
       } catch (error) {
         // Network error - speaker might be offline, just skip silently
-        debugLog(`[AudioMonitoring] Skipping offline speaker ${speaker.name}`);
+        debugLog(`[AudioMonitoring] ❌ Network error setting ${speaker.name} volume`);
       }
     });
 
     // Use allSettled to continue even if some speakers fail
     await Promise.allSettled(volumePromises);
+    debugLog(`[AudioMonitoring] setDevicesVolume(${volumePercent}%) - completed`);
   }, [selectedDevices, devices, useGlobalVolume]);
 
   // Helper function to determine if it's currently daytime
